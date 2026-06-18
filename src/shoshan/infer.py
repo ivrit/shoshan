@@ -26,6 +26,11 @@ from .lemma_bank import LemmaBank
 from .edit_script import apply_script, coverage
 from .hub import DEFAULT_REPO, download_weights
 
+# Closed-class parts of speech. For information retrieval these are stopwords, and
+# they are also where the edit-script fallback is least reliable (it has no real
+# lemma to copy toward). With blank_function_words=True they return an empty lemma.
+FUNCTION_POS = {"ADP", "AUX", "CCONJ", "SCONJ", "DET", "PRON", "PART", "INTJ"}
+
 
 class Lemmatizer:
     """A loaded Shoshan model: encoder + lemma bank + coverage-gated router."""
@@ -33,7 +38,7 @@ class Lemmatizer:
     def __init__(self, model_dir: Union[str, Path], bank_dir: Union[str, Path],
                  device: str = "cpu", use_router: bool = True,
                  cov_thresh: float = 0.60, min_sim: float = 0.0,
-                 use_pos_filter: bool = True):
+                 use_pos_filter: bool = True, blank_function_words: bool = False):
         self.enc = JointEncoder.load(model_dir, device=device)
         self.bank = LemmaBank.load(bank_dir)
         if self.bank.embeddings is None:
@@ -46,6 +51,7 @@ class Lemmatizer:
         self.cov_thresh = cov_thresh
         self.min_sim = min_sim
         self.use_pos_filter = use_pos_filter
+        self.blank_function_words = blank_function_words
 
     @classmethod
     def from_pretrained(cls, repo: str = DEFAULT_REPO, device: str = "cpu",
@@ -65,7 +71,9 @@ class Lemmatizer:
         Each item needs a ``form`` and (ideally) a ``sentence``; an optional
         ``pos`` restricts retrieval to lemmas seen with that part of speech.
         Each result adds ``lemma``, ``pos`` (predicted), ``score`` (retrieval
-        cosine), and ``source`` ("retrieved" or "transduced").
+        cosine), and ``source``: "retrieved" (from the bank), "transduced" (the
+        edit-script fallback), or "function" (a closed-class word blanked because
+        ``blank_function_words`` is on).
         """
         out: List[Dict] = []
         for i in range(0, len(items), batch):
@@ -87,14 +95,18 @@ class Lemmatizer:
                 else:
                     j = int(np.argmax(sims[k]))
                 ret_lemma, ret_sim = self.bank.lemmas[j], float(sims[k][j])
-                lemma, source = ret_lemma, "retrieved"
-                if self.use_router and epred is not None:
-                    trust = (coverage(form, ret_lemma) >= self.cov_thresh
-                             and ret_sim >= self.min_sim)
-                    if not trust:
-                        lemma = apply_script(form, self.enc.scripts[epred[k]])
-                        source = "transduced"
-                out.append({**it, "lemma": lemma, "pos": UPOS[pos_pred[k]],
+                pos = UPOS[pos_pred[k]]
+                if self.blank_function_words and pos in FUNCTION_POS:
+                    lemma, source = "", "function"
+                else:
+                    lemma, source = ret_lemma, "retrieved"
+                    if self.use_router and epred is not None:
+                        trust = (coverage(form, ret_lemma) >= self.cov_thresh
+                                 and ret_sim >= self.min_sim)
+                        if not trust:
+                            lemma = apply_script(form, self.enc.scripts[epred[k]])
+                            source = "transduced"
+                out.append({**it, "lemma": lemma, "pos": pos,
                             "score": ret_sim, "source": source})
         return out
 

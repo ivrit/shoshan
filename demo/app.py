@@ -10,7 +10,9 @@ _lz = None
 def lz():
     global _lz
     if _lz is None:
-        _lz = Lemmatizer.from_pretrained()      # downloads the weights on first call
+        # blank out closed-class function words: they are IR stopwords, and the
+        # edit-script fallback is least reliable on them.
+        _lz = Lemmatizer.from_pretrained(blank_function_words=True)
     return _lz
 
 
@@ -20,15 +22,18 @@ def _table(rows):
             "<th style='padding:6px 14px'>למה</th>"
             "<th style='padding:6px 14px'>חלק דיבר</th>"
             "<th style='padding:6px 14px'>מקור</th></tr>")
+    tags = {"retrieved": ("אוחזר מהמילון", "#2f6f9f"),
+            "transduced": ("נגזר מהמילה", "#b5651d"),
+            "function": ("מילת תפקוד — סוננה", "#aaa")}
     trs = []
     for r in rows:
-        retrieved = r["source"] == "retrieved"
-        tag = "אוחזר מהמילון" if retrieved else "נגזר מהמילה"
-        color = "#2f6f9f" if retrieved else "#b5651d"
+        tag, color = tags.get(r["source"], (r["source"], "#888"))
+        lemma_cell = H.escape(r["lemma"]) if r["lemma"] else "—"
+        faded = "color:#bbb" if r["source"] == "function" else ""
         trs.append(
             "<tr style='border-bottom:1px solid #eee'>"
-            f"<td style='padding:6px 14px;font-size:18px'>{H.escape(r['form'])}</td>"
-            f"<td style='padding:6px 14px;font-size:18px'><b>{H.escape(r['lemma'])}</b></td>"
+            f"<td style='padding:6px 14px;font-size:18px;{faded}'>{H.escape(r['form'])}</td>"
+            f"<td style='padding:6px 14px;font-size:18px;{faded}'><b>{lemma_cell}</b></td>"
             f"<td style='padding:6px 14px;color:#888'>{r['pos']}</td>"
             f"<td style='padding:6px 14px;color:{color}'>{tag}</td></tr>")
     return ("<table dir='rtl' style='border-collapse:collapse;width:100%;"
