@@ -43,6 +43,14 @@ for tok in lz.annotate("הילדים שיחקו בגן"):
 when the edit-script fallback produced it (this is how out-of-vocabulary words
 are handled).
 
+For information retrieval you usually drop closed-class function words (prepositions,
+pronouns, conjunctions, …). Pass `blank_function_words=True` and those tokens come
+back with an empty lemma and `source="function"`, so you can skip them:
+
+```python
+lz = Lemmatizer.from_pretrained(blank_function_words=True)
+```
+
 From the command line:
 
 ```bash
