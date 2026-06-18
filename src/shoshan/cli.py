@@ -4,6 +4,7 @@
 
   shoshan "הוא פרק את המטענים מהמשאית"      # lemmatize a sentence, print a table
   shoshan --csv in.csv out.csv               # batch: in.csv has form,sentence[,pos]
+  shoshan --csv in.csv out.csv --miss-log curate.csv   # + a forms-to-curate worklist
 """
 
 import argparse
@@ -21,6 +22,8 @@ def main(argv=None):
     ap.add_argument("--no-router", action="store_true",
                     help="disable the edit-script fallback (retrieve only)")
     ap.add_argument("--cov-thresh", type=float, default=0.60)
+    ap.add_argument("--miss-log", metavar="PATH",
+                    help="write a frequency-sorted worklist of likely-OOV forms to curate")
     args = ap.parse_args(argv)
 
     from .infer import Lemmatizer
@@ -28,7 +31,8 @@ def main(argv=None):
 
     lz = Lemmatizer.from_pretrained(
         repo=args.repo or DEFAULT_REPO, device=args.device,
-        use_router=not args.no_router, cov_thresh=args.cov_thresh)
+        use_router=not args.no_router, cov_thresh=args.cov_thresh,
+        log_misses=bool(args.miss_log))
 
     if args.csv:
         import pandas as pd
@@ -37,6 +41,9 @@ def main(argv=None):
         preds = lz.lemmatize(df.to_dict("records"))
         pd.DataFrame(preds).to_csv(dst, index=False, encoding="utf-8")
         print(f"Wrote {len(preds)} rows to {dst}")
+        if args.miss_log:
+            n = lz.write_miss_log(args.miss_log)
+            print(f"Wrote {n} distinct forms-to-curate to {args.miss_log}")
         return
 
     sentence = " ".join(args.text).strip()
