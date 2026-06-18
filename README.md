@@ -33,10 +33,10 @@ from shoshan import Lemmatizer
 lz = Lemmatizer.from_pretrained()        # downloads the weights once, then caches
 
 # lemma(word, sentence): the lemma of just that ONE word, read
-  in context.
+#  in context.
  
 # The sentence only disambiguates it — nothing else in it
-  is lemmatized.
+# is lemmatized.
 
 lz.lemma("המטענים", "הוא פרק את המטענים מהמשאית.")   # 'מטען'
 lz.lemma("בספרו", "הוא כתב על כך בספרו האחרון.")       # 'ספר'
