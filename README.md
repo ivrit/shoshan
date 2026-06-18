@@ -30,20 +30,16 @@ There are two entry points: `lemma()` for **one word-form in its sentence**, and
 ```python
 from shoshan import Lemmatizer
 
-lz = Lemmatizer.from_pretrained()        # downloads the weights once, then caches
+lz = Lemmatizer.from_pretrained()   # downloads + caches
 
-# lemma(word, sentence): the lemma of just that ONE word, read
-#  in context.
- 
-# The sentence only disambiguates it — nothing else in it
-# is lemmatized.
-
+# lemma(word, sentence): the lemma of that one word,
+# read in context; the rest of the sentence is left alone.
 lz.lemma("המטענים", "הוא פרק את המטענים מהמשאית.")   # 'מטען'
 lz.lemma("בספרו", "הוא כתב על כך בספרו האחרון.")       # 'ספר'
 
 # annotate(sentence): lemmatize every word in the sentence.
 for tok in lz.annotate("הילדים שיחקו בגן"):
-    print(tok["form"], "->", tok["lemma"], tok["pos"], f"({tok['source']})")
+    print(tok["form"], "→", tok["lemma"], tok["source"])
 ```
 
 `source` is `"retrieved"` when the lemma came from the bank and `"transduced"`
