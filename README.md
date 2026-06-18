@@ -80,20 +80,36 @@ The released model is trained only on the openly redistributable **Knesset +
 Wikipedia** portions of the IAHLT Hebrew UD treebank, plus public lexicons. It is
 evaluated on held-out domains it never saw in training.
 
-| metric | Shoshan | DictaBERT-lex |
-|---|---|---|
-| Lemma accuracy, in-domain | 94.3% | — |
-| Lemma accuracy, out-of-domain | 92.4% | — |
-| B³ precision (consistency) | **0.965** | 0.906 |
-| B³ recall (consistency) | **0.953** | 0.932 |
-| B³ F1 | **0.959** | 0.919 |
-| Low-overlap errors on unseen words | **0.0%** | 12.3% |
+**Exact-match lemma accuracy** (Shoshan):
 
-The last row is the point of the design: on words neither system saw in
-training, the generative baseline rewrites about one in eight into something the
-input word could not have produced, while Shoshan's bounded output rules that
-out. DictaBERT-lex was trained on more data than we use here, including the
-domains we hold out, so the comparison is conservative.
+| split | overall | seen form | unseen form |
+|---|---|---|---|
+| in-domain | 94.3% | 95.4% | 85.6% |
+| out-of-domain | 92.4% | 95.1% | 81.2% |
+
+Accuracy on words whose surface form was seen in training transfers almost intact
+across domains (~95%); the gap sits in the genuinely unseen tail, which is exactly
+where the edit-script transducer operates.
+
+**Versus DictaBERT-lex** (out-of-domain). Exact match is not a fair cross-system
+metric here: the two systems follow different lemma conventions (article stripping,
+multi-word handling), so scoring one against the other's gold understates it. We
+compare instead on convention-invariant **B³ consistency** (do inflections of a
+word cluster together?) and on **low-overlap errors** (predictions that share too
+little with the input word to be one of its forms).
+
+| metric (out-of-domain) | Shoshan | DictaBERT-lex |
+|---|---|---|
+| B³ precision | **0.965** | 0.906 |
+| B³ recall | **0.953** | 0.932 |
+| B³ F1 | **0.959** | 0.919 |
+| Low-overlap errors, unseen words | **0.0%** | 12.3% |
+
+The last row is the point of the design: on words neither system saw in training,
+the generative baseline rewrites about one in eight into something the input word
+could not have produced, while Shoshan's bounded output rules that out.
+DictaBERT-lex was trained on more data than we use here, including the domains we
+hold out, so the comparison is conservative.
 
 The evaluation data and splits are in `data/`. Numbers and the full write-up are
 in the paper (in preparation).

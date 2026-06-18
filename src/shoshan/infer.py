@@ -75,11 +75,15 @@ class Lemmatizer:
         edit-script fallback), or "function" (a closed-class word blanked because
         ``blank_function_words`` is on).
         """
+        from .text import normalize_text
         out: List[Dict] = []
         for i in range(0, len(items), batch):
             chunk = items[i:i + batch]
-            sents = [str(it.get("sentence") or it["form"]) for it in chunk]
-            spans = [self._span(str(it["form"]), s) for it, s in zip(chunk, sents)]
+            # normalize input the same way training forms are normalized (quote/prime
+            # variants -> ASCII); length-preserving, so spans stay valid.
+            sents = [normalize_text(str(it.get("sentence") or it["form"])) for it in chunk]
+            forms = [normalize_text(str(it["form"])) for it in chunk]
+            spans = [self._span(f, s) for f, s in zip(forms, sents)]
             with torch.no_grad():
                 q, pos_logits, edit_logits = self.enc.encode_query(sents, spans)
             q = q.cpu().numpy()
@@ -87,7 +91,7 @@ class Lemmatizer:
             epred = edit_logits.argmax(1).tolist() if edit_logits is not None else None
             sims = q @ self.L.T
             for k, it in enumerate(chunk):
-                form = str(it["form"])
+                form = forms[k]
                 cand = (self.bank.candidate_ids(it.get("pos", ""))
                         if self.use_pos_filter else None)
                 if cand is not None:
@@ -106,7 +110,7 @@ class Lemmatizer:
                         if not trust:
                             lemma = apply_script(form, self.enc.scripts[epred[k]])
                             source = "transduced"
-                out.append({**it, "lemma": lemma, "pos": pos,
+                out.append({**it, "form": form, "lemma": lemma, "pos": pos,
                             "score": ret_sim, "source": source})
         return out
 
@@ -116,6 +120,7 @@ class Lemmatizer:
 
     def annotate(self, sentence: str) -> List[Dict]:
         """Tokenize `sentence` and lemmatize every word token in context."""
-        from .text import tokenize
+        from .text import tokenize, normalize_text
+        sentence = normalize_text(sentence)   # so quote variants don't split acronyms
         items = [{"form": f, "sentence": sentence} for f in tokenize(sentence)]
         return self.lemmatize(items)
