@@ -74,6 +74,30 @@ Because step 3 can only delete from or affix to the input word, the system has a
 bounded output: it never produces an unrelated string. Adding vocabulary is just
 adding rows to the bank and re-encoding them — no retraining.
 
+### Finding words to curate
+
+The system tells you where it is unsure. A token is flagged when the bank's best lemma is
+morphologically implausible for the surface form (the coverage gate distrusts the
+retrieval) — i.e. a likely out-of-vocabulary word. Turn on `log_misses` and the model
+collects these; `write_miss_log` writes them as a **frequency-sorted worklist** — the
+word-forms most worth annotating or adding to the lexicon, commonest first.
+
+```python
+lz = Lemmatizer.from_pretrained(log_misses=True)
+lz.lemmatize(corpus_rows)               # run over your text
+lz.write_miss_log("to_curate.csv")      # wordform, pos, count, lemma, coverage, reason
+```
+
+or from the command line:
+
+```bash
+shoshan --csv corpus.csv out.csv --miss-log to_curate.csv
+```
+
+Since extending the system is just adding lemmas to the bank and re-encoding (no
+retraining), this closes the loop: the model surfaces its own gaps, you curate the
+highest-frequency ones, and coverage improves without a training step.
+
 ## Results
 
 The released model is trained only on the openly redistributable **Knesset +

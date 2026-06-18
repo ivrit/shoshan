@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Dict, List, Optional, Union
 
 import numpy as np
+import pandas as pd
 import torch
 
 from .model_joint import JointEncoder, UPOS
@@ -38,7 +39,8 @@ class Lemmatizer:
     def __init__(self, model_dir: Union[str, Path], bank_dir: Union[str, Path],
                  device: str = "cpu", use_router: bool = True,
                  cov_thresh: float = 0.60, min_sim: float = 0.0,
-                 use_pos_filter: bool = True, blank_function_words: bool = False):
+                 use_pos_filter: bool = True, blank_function_words: bool = False,
+                 log_misses: bool = False):
         self.enc = JointEncoder.load(model_dir, device=device)
         self.bank = LemmaBank.load(bank_dir)
         if self.bank.embeddings is None:
@@ -52,6 +54,11 @@ class Lemmatizer:
         self.min_sim = min_sim
         self.use_pos_filter = use_pos_filter
         self.blank_function_words = blank_function_words
+        # When True, flag tokens where retrieval is not trusted (likely OOV / bank
+        # miss). The frequency-sorted log (write_miss_log) is a curation worklist:
+        # the word-forms most worth annotating or adding to the lexicon.
+        self.log_misses = log_misses
+        self.miss_log: List[Dict] = []
 
     @classmethod
     def from_pretrained(cls, repo: str = DEFAULT_REPO, device: str = "cpu",
@@ -110,9 +117,51 @@ class Lemmatizer:
                         if not trust:
                             lemma = apply_script(form, self.enc.scripts[epred[k]])
                             source = "transduced"
+                    if self.log_misses:
+                        self._record_miss(form, pos, lemma, ret_lemma, ret_sim)
                 out.append({**it, "form": form, "lemma": lemma, "pos": pos,
                             "score": ret_sim, "source": source})
         return out
+
+    def _record_miss(self, form: str, pos: str, lemma: str,
+                     ret_lemma: str, ret_sim: float) -> None:
+        """Flag a token where retrieval is NOT trusted: the bank's best lemma is
+        morphologically implausible for the form (coverage below threshold) or its
+        similarity is below the floor. These are the likely-OOV / bank-miss tokens
+        worth annotating or adding to the lexicon. A base form that is its own lemma
+        (ספר->ספר, coverage 1.0) is correctly not flagged even though lemma==form."""
+        cov = coverage(form, ret_lemma)
+        cov_low, sim_low = cov < self.cov_thresh, ret_sim < self.min_sim
+        if not (cov_low or sim_low):
+            return
+        reasons = [r for r, on in (("coverage_low", cov_low), ("sim_low", sim_low)) if on]
+        if lemma == form:  # the transducer also gave up and copied the surface form
+            reasons.append("copy_fallback")
+        self.miss_log.append({
+            "wordform": form, "predicted_pos": pos, "predicted_lemma": lemma,
+            "retrieved_lemma": ret_lemma, "coverage": round(cov, 4),
+            "sim": round(ret_sim, 4), "reason": "+".join(reasons)})
+
+    def write_miss_log(self, path: Union[str, Path]) -> int:
+        """Aggregate misses by (wordform, predicted_pos) and write a frequency-sorted
+        CSV: the prioritized worklist of forms to curate. Returns the row count."""
+        cols = ["wordform", "predicted_pos", "count", "predicted_lemma",
+                "retrieved_lemma", "mean_coverage", "mean_sim", "reason"]
+        if not self.miss_log:
+            pd.DataFrame(columns=cols).to_csv(path, index=False, encoding="utf-8")
+            return 0
+        df = pd.DataFrame(self.miss_log)
+        agg = (df.groupby(["wordform", "predicted_pos"], sort=False)
+                 .agg(count=("wordform", "size"),
+                      predicted_lemma=("predicted_lemma", "first"),
+                      retrieved_lemma=("retrieved_lemma", "first"),
+                      mean_coverage=("coverage", "mean"),
+                      mean_sim=("sim", "mean"),
+                      reason=("reason", lambda s: s.mode().iat[0]))
+                 .reset_index()
+                 .sort_values("count", ascending=False))
+        agg[cols].to_csv(path, index=False, encoding="utf-8")
+        return len(agg)
 
     def lemma(self, form: str, sentence: Optional[str] = None) -> str:
         """Return just the lemma string for one form in context."""
