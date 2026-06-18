@@ -14,16 +14,16 @@ to sample and release the out-of-domain evaluation sentences used in this work.
 
 | artifact | source | license |
 |---|---|---|
-| in-domain train/dev/test (`data/open/processed/{train,dev,test}.csv`) | **Knesset** and **Wikipedia** portions of the IAHLT Hebrew UD treebank | CC BY 4.0 |
-| out-of-domain benchmark (`data/open/processed/ood_*.csv`) | 100 length-stratified sentences sampled per external IAHLT domain (Bagatz, GeekTime, Dicta) | CC BY 4.0, with IAHLT permission |
-| unseen-lemma split (`data/open/processed/oov.csv`) | rare lemmas held out from the open in-domain data | CC BY 4.0 |
+| in-domain train/dev/test (`data/{train,dev,test}.csv`) | **Knesset** and **Wikipedia** portions of the IAHLT Hebrew UD treebank | CC BY 4.0 |
+| out-of-domain benchmark (`data/ood*.csv`) | 100 length-stratified sentences sampled per external IAHLT domain (Bagatz, GeekTime, Dicta) | CC BY 4.0, with IAHLT permission |
+| unseen-lemma split (`data/oov.csv`) | rare lemmas held out from the open in-domain data | CC BY 4.0 |
 | lemma bank | open treebank lemmas ∪ a public Hebrew lemma lexicon (with the MILA morphological lexicon) | see below |
-| encoder weights | fine-tuned from DictaBERT (`dicta-il/dictabert`) | per the backbone's license |
+| encoder weights (`noamor/shoshan`) | fine-tuned from DictaBERT (`dicta-il/dictabert`) | per the backbone's license |
 | code | this repository | MIT |
 
-All splits are rendered to **one content lemma per surface token** by the rule set in
-`docs/LEMMA_RULES.md` (multi-word tokens collapse to their content nucleus; clitics stay in
-the surface form; homographs resolved by function in context). Surface forms or lemmas that
+All splits are rendered to **one content lemma per surface token** by a hand-developed rule
+set (multi-word tokens collapse to their content nucleus; clitics stay in the surface form;
+homographs resolved by function in context). Surface forms or lemmas that
 are a single character, contain a digit, or are punctuation/symbols are filtered.
 
 ## What we exclude (and why)
@@ -45,7 +45,7 @@ are a single character, contain a digit, or are punctuation/symbols are filtered
   **length-stratified** strategy (fixed seed) over sentences with ≥5 content tokens, after
   removing near-duplicates — chosen for representativeness and reproducibility over a
   diversity-maximizing alternative. Per-domain statistics are in
-  `data/open/processed/ood_domain_stats.csv`.
+  `data/ood_domain_stats.csv`.
 - **Unseen-lemma split**: the rarest in-domain lemmas, with all their tokens, held out from
   train/dev/test.
 
@@ -54,7 +54,8 @@ are a single character, contain a digit, or are punctuation/symbols are filtered
 The lemma bank and part of the training signal use a public Hebrew lemma lexicon together
 with the **MILA** morphological lexicon (Itai & Wintner, 2008). Users redistributing the
 prebuilt bank should confirm the MILA terms for their use; the bank can be regenerated from
-the open treebank and the lexicon with `scripts/build_lemma_bank.py`.
+the open treebank lemmas and the lexicon (the bank is a plain `lemmas.csv` re-encoded by the
+model, so extending it is just adding rows and re-embedding — no retraining).
 
 ## Intended use and limitations
 
