@@ -1,0 +1,6 @@
+torch
+transformers
+numpy
+pandas
+huggingface_hub
+git+https://github.com/ivrit/shoshan.git
