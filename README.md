@@ -135,28 +135,36 @@ could not have produced, while Shoshan's bounded output rules that out.
 DictaBERT-lex was trained on more data than we use here, including the domains we
 hold out, so the comparison is conservative.
 
-The evaluation data and splits are in `data/`. Numbers and the full write-up are
-in the paper (in preparation).
+The training data and evaluation splits live in a companion dataset,
+[`noamor/shoshan-data`](https://huggingface.co/datasets/noamor/shoshan-data), and
+download on demand:
+
+```python
+from shoshan import data
+df = data.load("ood")     # or "train" / "dev" / "test" / "oov" / "ood_bagatz" ...
+```
+
+Numbers and the full write-up are in the paper (in preparation).
 
 ### Consistency over canonical form
 
 For information retrieval the exact lemma string barely matters. What matters is that
 every inflection of a word lands on the *same* label and that different words stay apart.
-That is what B³ measures, and it is why we report it instead of exact match. Every form of
-"to go" collapses to one label:
+That is what B³ measures, and it is why we report it — and why it is the fair way to compare
+against a system that uses a different lemma convention. Surfaces that look nothing alike
+collapse to one label:
 
 ```
-הלכתי · הולך · ילך · ללכת · הלכו · נלך   →   הלך
+הורדתי · מוריד · הורידו · יוריד   →   הוריד
 ```
 
-`הלך` happens to be the dictionary form, but it would not have to be: B³ would score a
-consistent *non-standard* string just as well. In that sense the system is partly a
-stemmer — what the label is called does not matter, only that retrieval is accurate and
-consistent. What B³ *does* penalize is splitting one word across several labels. That is
-the failure mode of the edit-script fallback on a rare unseen form: if it guesses a slightly
-different stem for one inflection (e.g. an odd `צפיתי → צפית` sitting next to `צפה`), it
-splits the cluster. That residue — not canonical-spelling mismatches — is why B³ recall is
-0.953 and not 1.0; richer context helps, because it pushes more of these onto clean
+B³ is blind to the label itself: a system that consistently used a *non-standard* string for
+this cluster would score exactly the same. In that sense the value is stemmer-like — what the
+label is called does not matter, only that every form of a word reaches the same one. What B³
+penalizes is the reverse: *splitting* one word across several labels. In this system that
+happens only at the edit-script fallback, on a rare unseen form it cannot retrieve — it may
+guess a stem that does not match the rest of the lexeme. That residue is why B³ recall is
+0.953 and not 1.0, and richer context shrinks it by routing more forms back to clean
 retrieval.
 
 ## About the name
