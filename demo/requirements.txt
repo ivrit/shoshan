@@ -3,4 +3,4 @@ transformers
 numpy
 pandas
 huggingface_hub
-git+https://github.com/ivrit/shoshan.git@10c506c9e1aa5a3114348d9a3868eefdf13362a3
+git+https://github.com/ivrit/shoshan.git@37fafead59aa8e7c43ca24ae10e77b3f6af4c005
