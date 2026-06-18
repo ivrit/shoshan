@@ -24,17 +24,20 @@ load the model and are cached after that.
 
 ## Use it
 
-From Python:
+There are two entry points: `lemma()` for **one word-form in its sentence**, and
+`annotate()` for **every word in a sentence**.
 
 ```python
 from shoshan import Lemmatizer
 
 lz = Lemmatizer.from_pretrained()        # downloads the weights once, then caches
 
+# lemma(word, sentence): the lemma of just that ONE word, read in context.
+# The sentence only disambiguates it — nothing else in it is lemmatized.
 lz.lemma("המטענים", "הוא פרק את המטענים מהמשאית.")   # 'מטען'
 lz.lemma("בספרו", "הוא כתב על כך בספרו האחרון.")       # 'ספר'
 
-# a whole sentence, token by token
+# annotate(sentence): lemmatize every word in the sentence.
 for tok in lz.annotate("הילדים שיחקו בגן"):
     print(tok["form"], "->", tok["lemma"], tok["pos"], f"({tok['source']})")
 ```
