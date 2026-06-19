@@ -100,14 +100,6 @@ with gr.Blocks(title="Shoshan vs DictaBERT-lex") as demo:
             ["החברה פיתחה טכנולוגיה חדשה וגייסה הון מהמשקיעים."],
         ],
         inputs=inp, label="Examples (click to load, then press Lemmatize)")
-    gr.Markdown(
-        "**The examples, for non-Hebrew readers** (Modern-Israeli romanization · gloss):\n"
-        "1. *hu nisa limtso et ha-maftekhot ha-avudim…* — 'He tried to find the lost keys under "
-        "the driver's seat.' Watch **למצוא** *limtso* ('to find').\n"
-        "2. *ha-jedai shalaf et ha-laytseiber ha-zoher…* — 'The Jedi drew his glowing lightsaber "
-        "before the battle.' Watch the loanword **הלייטסייבר** *ha-laytseiber*.\n"
-        "3. *ha-khevra pitkha teknologya khadasha ve-gaysa hon…* — 'The company developed new "
-        "technology and raised capital from investors.'")
     out = gr.HTML(label="Shoshan vs DictaBERT-lex")
     gr.Markdown(
         "Shoshan: [code](https://github.com/ivrit/shoshan) · "
