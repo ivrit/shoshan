@@ -1,113 +1,111 @@
 import html as H
 import gradio as gr
 from shoshan import Lemmatizer
+from shoshan.text import tokenize
 
-DEFAULT = "ראש הממשלה הודיע כי הממשלה תאשר את התקציב החדש למרות התנגדות האופוזיציה."
+DEFAULT = "הוא ניסה למצוא את המפתחות האבודים מתחת למושב הנהג."
 BLUE, ORANGE = "#2f6f9f", "#b5651d"
 
 _lz = None
+_dicta = None
 
 
 def lz():
+    # Shoshan must load BEFORE dicta-lex: dicta-lex registers a custom AutoModel via
+    # trust_remote_code, which would otherwise hijack our plain-BERT load.
     global _lz
     if _lz is None:
-        # blank out closed-class function words: they are IR stopwords, and the
-        # edit-script fallback is least reliable on them.
-        _lz = Lemmatizer.from_pretrained(blank_function_words=True)
+        _lz = Lemmatizer.from_pretrained()        # blanking OFF for the side-by-side
     return _lz
 
 
-def _table(rows):
+def dicta():
+    global _dicta
+    if _dicta is None:
+        from transformers import AutoModel, AutoTokenizer
+        tok = AutoTokenizer.from_pretrained("dicta-il/dictabert-lex")
+        mdl = AutoModel.from_pretrained("dicta-il/dictabert-lex", trust_remote_code=True).eval()
+        _dicta = (mdl, tok)
+    return _dicta
+
+
+def dicta_lemmas(sentence):
+    """{surface word -> DictaBERT-lex lemma} for the sentence (one forward pass)."""
+    try:
+        mdl, tok = dicta()
+        pairs = mdl.predict([sentence], tok)[0]   # list of (word, lemma)
+        return {w: l for w, l in pairs}
+    except Exception:
+        return None
+
+
+def _table(sh_rows, d_map):
     head = ("<tr style='border-bottom:2px solid #ddd'>"
-            "<th style='padding:6px 14px'>מילה</th>"
-            "<th style='padding:6px 14px'>למה</th>"
-            "<th style='padding:6px 14px'>חלק דיבר</th>"
-            "<th style='padding:6px 14px'>מקור</th></tr>")
-    tags = {"retrieved": ("אוחזר מהמילון", BLUE),
-            "transduced": ("נגזר מהמילה", ORANGE),
-            "function": ("מילת תפקוד — סוננה", "#aaa")}
+            "<th style='padding:6px 16px'>מילה</th>"
+            "<th style='padding:6px 16px'>Shoshan</th>"
+            "<th style='padding:6px 16px'>DictaBERT-lex</th></tr>")
     trs = []
-    for r in rows:
-        tag, color = tags.get(r["source"], (r["source"], "#888"))
-        lemma_cell = H.escape(r["lemma"]) if r["lemma"] else "—"
-        faded = "color:#bbb" if r["source"] == "function" else ""
+    for r in sh_rows:
+        form = r["form"]
+        sh_color = BLUE if r["source"] == "retrieved" else ORANGE
+        sh = H.escape(r["lemma"]) if r["lemma"] else "—"
+        d = d_map.get(form) if d_map is not None else None
+        d_cell = (f"<b style='color:{ORANGE}'>{H.escape(d)}</b>" if d
+                  else "<span style='color:#bbb'>—</span>")
         trs.append(
             "<tr style='border-bottom:1px solid #eee'>"
-            f"<td style='padding:6px 14px;font-size:18px;{faded}'>{H.escape(r['form'])}</td>"
-            f"<td style='padding:6px 14px;font-size:18px;{faded}'><b>{lemma_cell}</b></td>"
-            f"<td style='padding:6px 14px;color:#888'>{r['pos']}</td>"
-            f"<td style='padding:6px 14px;color:{color}'>{tag}</td></tr>")
-    return ("<table dir='rtl' style='border-collapse:collapse;width:100%;"
-            "font-family:Arial,Helvetica,sans-serif'>" + head + "".join(trs) + "</table>")
+            f"<td style='padding:7px 16px;font-size:18px'>{H.escape(form)}</td>"
+            f"<td style='padding:7px 16px;font-size:18px'><b style='color:{sh_color}'>{sh}</b></td>"
+            f"<td style='padding:7px 16px;font-size:18px'>{d_cell}</td></tr>")
+    table = ("<table dir='rtl' style='border-collapse:collapse;width:100%;"
+             "font-family:Arial,Helvetica,sans-serif'>" + head + "".join(trs) + "</table>")
+    legend = (
+        f"<p style='font-size:13px;color:#555;margin-top:10px'>"
+        f"<b style='color:{BLUE}'>●</b> retrieved from the bank &nbsp;&nbsp; "
+        f"<b style='color:{ORANGE}'>●</b> generated. "
+        f"Shoshan retrieves a real lemma or makes a bounded edit of the word; DictaBERT-lex "
+        f"always predicts a single token of its vocabulary, so it can return an unrelated word "
+        f"or <code>[BLANK]</code>.</p>")
+    return f"<div style='overflow-x:auto;padding:8px 0'>{table}{legend}</div>"
 
 
 def run(text):
     text = (text or "").strip()
     if not text:
         return ""
-    rows = lz().annotate(text)
-    return f"<div style='overflow-x:auto;padding:8px 0'>{_table(rows)}</div>"
+    L = lz()                                  # load Shoshan first
+    sh_rows = L.annotate(text)
+    d_map = dicta_lemmas(text)                # then dicta-lex
+    note = ("" if d_map is not None else
+            "<p style='color:#c0392b;font-size:13px'>DictaBERT-lex did not load; showing "
+            "Shoshan only.</p>")
+    return note + _table(sh_rows, d_map or {})
 
 
-# Preselected DictaBERT-lex outputs on hard words, from our error audit. Shown as-is,
-# Hebrew only, no gloss and no right/wrong mark — read them and judge for yourself.
-DICTA_WILD = [
-    ("למצוא", "חיפש"),
-    ("ואמר", "הגיד"),
-    ("לקבוע", "הגדיר"),
-    ("הלייטסייבר", "[BLANK]"),
-    ("בסייברפאנק", "[BLANK]"),
-]
-
-
-def _dicta_table():
-    head = ("<tr style='border-bottom:2px solid #ddd'>"
-            "<th style='padding:6px 18px'>מילה</th>"
-            "<th style='padding:6px 18px'>DictaBERT-lex</th></tr>")
-    trs = "".join(
-        "<tr style='border-bottom:1px solid #eee'>"
-        f"<td style='padding:7px 18px;font-size:18px'>{H.escape(w)}</td>"
-        f"<td style='padding:7px 18px;font-size:18px;color:{ORANGE}'>{H.escape(o)}</td></tr>"
-        for w, o in DICTA_WILD)
-    return ("<table dir='rtl' style='border-collapse:collapse;"
-            "font-family:Arial,Helvetica,sans-serif'>" + head + trs + "</table>")
-
-
-with gr.Blocks(title="Shoshan — Hebrew lemmatizer") as demo:
+with gr.Blocks(title="Shoshan vs DictaBERT-lex") as demo:
     gr.Markdown(
         "## Shoshan — Hebrew lemmatizer\n"
-        "Paste Hebrew text and get each word's lemma. Shoshan never invents a word: it "
-        "retrieves the lemma from a fixed bank, and for an unknown word it derives the lemma "
-        "by editing the word itself. The first run downloads the model, so the first request "
-        "takes a minute.")
+        "Paste Hebrew text and compare **Shoshan** with **DictaBERT-lex**, word by word. Shoshan "
+        "retrieves a real lemma from a fixed bank, or makes a bounded edit of the word for unknown "
+        "words; DictaBERT-lex predicts each lemma as a single token from its vocabulary. The first "
+        "run downloads both models, so it takes a minute.")
     with gr.Row():
         inp = gr.Textbox(lines=3, value=DEFAULT, rtl=True, text_align="right", scale=5,
                          label="Hebrew text")
         btn = gr.Button("Lemmatize", variant="primary", scale=1, min_width=130)
     gr.Examples(
         examples=[
-            ["הילדים שיחקו בגן והמורות צפו בהם מהצד."],
+            ["הוא ניסה למצוא את המפתחות האבודים מתחת למושב הנהג."],
+            ["הג'דיי שלף את הלייטסייבר הזוהר שלו לפני הקרב."],
             ["החברה פיתחה טכנולוגיה חדשה וגייסה הון מהמשקיעים."],
-            ["הוא פרק את המטענים מהמשאית והניח אותם במחסן."],
         ],
         inputs=inp, label="Examples (click to load, then press Lemmatize)")
-    out = gr.HTML(label="Lemmas")
-    gr.Markdown("Blue = retrieved from the bank · orange = derived for an unknown word.")
-
-    gr.Markdown(
-        "---\n### vs DictaBERT-lex\n"
-        "Every lemmatizer has to handle words it never saw. Shoshan edits the input word "
-        "itself, so whatever it returns is still a real form of that word. DictaBERT-lex "
-        "predicts each lemma as a single token from its vocabulary, with nothing tying it to "
-        "the word on the page, so it can return an unrelated word, or nothing at all when the "
-        "lemma isn't in that vocabulary. A few of its outputs from our error audit — paste "
-        "your own text above and see for yourself whether Shoshan ever leaves the word:")
-    gr.HTML(value=_dicta_table())
-
+    out = gr.HTML(label="Shoshan vs DictaBERT-lex")
     gr.Markdown(
         "Shoshan: [code](https://github.com/ivrit/shoshan) · "
         "[weights](https://huggingface.co/noamor/shoshan) · "
-        "[data](https://huggingface.co/datasets/noamor/shoshan-data).")
+        "[data](https://huggingface.co/datasets/noamor/shoshan-data). "
+        "DictaBERT-lex: [dicta-il/dictabert-lex](https://huggingface.co/dicta-il/dictabert-lex).")
     btn.click(run, inp, out, api_name="predict")
     inp.submit(run, inp, out, api_name=False)
 
