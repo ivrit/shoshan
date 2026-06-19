@@ -42,6 +42,11 @@ for tok in lz.annotate("הילדים שיחקו בגן"):
     print(tok["form"], "→", tok["lemma"], tok["source"])
 ```
 
+The Hebrew above, romanized for non-Hebrew readers (Modern-Israeli phonemic):
+*המטענים* ha-mit'anim ('the cargo') → *מטען* mit'an; *בספרו* bi-sfaro ('in his
+book') → *ספר* sefer; and *הילדים שיחקו בגן* ha-yeladim sikhaku ba-gan ('the
+children played in the garden') → *ילד* yeled, *שיחק* sikhek, *גן* gan.
+
 `source` is `"retrieved"` when the lemma came from the bank and `"transduced"`
 when the edit-script fallback produced it (this is how out-of-vocabulary words
 are handled).
@@ -161,6 +166,9 @@ collapse to one label:
 ```
 הורדתי · מוריד · הורידו · יוריד   →   הוריד
 ```
+
+(*horadeti · morid · horidu · yorid → horid* — four very different surface forms of
+"download / take down", all conflated to one lemma.)
 
 B³ is blind to the label itself: a system that consistently used a *non-standard* string for
 this cluster would score exactly the same. In that sense the value is stemmer-like — what the
