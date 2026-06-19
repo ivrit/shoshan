@@ -135,10 +135,13 @@ not have produced, and it never returns nothing.</p>
 <div class='stats'>
 <div class='stat'><div class='n'>0.0%</div><div class='l'>hallucinated lemmas on unseen words<br>(DictaBERT-lex: 12.3%)</div></div>
 <div class='stat'><div class='n'>0.959</div><div class='l'>B³ consistency F₁, out of domain<br>(DictaBERT-lex: 0.919)</div></div>
-<div class='stat'><div class='n'>92.4%</div><div class='l'>lemma accuracy on held-out domains<br>(94.3% in-domain)</div></div>
+<div class='stat'><div class='n'>92.4%</div><div class='l'>Shoshan lemma accuracy, held-out domains<br>(in-domain 94.3% — both Shoshan)</div></div>
 </div>
-<p class='lead'>Trained on only the openly redistributable 38% of the IAHLT treebank, Shoshan matches
-a baseline trained on far more data on consistency, while removing its hallucinations outright.</p>
+<p class='lead'>Both accuracy figures are Shoshan's own — out-of-domain and in-domain. We compare the
+two systems on B³ rather than exact match, because their lemma conventions differ and exact-match
+accuracy is not comparable across them. Trained on only the openly redistributable 38% of the IAHLT
+treebank, Shoshan matches a baseline trained on far more data on that consistency, while removing its
+hallucinations outright.</p>
 
 <h2>How it works</h2>
 <div class='steps'>
