@@ -13,3 +13,6 @@ model/
 bank/
 *.npy
 !data/**/*.npy
+
+# white paper intermediate (regenerable via docs/whitepaper/build.py)
+docs/whitepaper/shoshan_whitepaper.html
