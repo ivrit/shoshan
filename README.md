@@ -133,8 +133,9 @@ little with the input word to be one of its forms).
 | Low-overlap errors, unseen words | **0.0%** | 12.3% |
 
 The last row is the point of the design: on words neither system saw in training,
-the generative baseline rewrites about one in eight into something the input word
-could not have produced, while Shoshan's bounded output rules that out.
+DictaBERT-lex — which predicts each lemma as a single token from its vocabulary —
+rewrites about one in eight into a word the input could not have produced (or emits
+an empty token), while Shoshan's bounded output rules that out.
 DictaBERT-lex was trained on more data than we use here, including the domains we
 hold out, so the comparison is conservative.
 
