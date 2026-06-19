@@ -98,10 +98,10 @@ with gr.Blocks(title="Shoshan — Hebrew lemmatizer") as demo:
         "---\n### vs DictaBERT-lex\n"
         "Every lemmatizer has to handle words it never saw. Shoshan edits the input word "
         "itself, so whatever it returns is still a real form of that word. DictaBERT-lex "
-        "generates the lemma freely, with nothing tying it to the word on the page, so it can "
-        "return an unrelated word or nothing at all. A few of its outputs from our error "
-        "audit — paste your own text above and see for yourself whether Shoshan ever leaves "
-        "the word:")
+        "predicts each lemma as a single token from its vocabulary, with nothing tying it to "
+        "the word on the page, so it can return an unrelated word, or nothing at all when the "
+        "lemma isn't in that vocabulary. A few of its outputs from our error audit — paste "
+        "your own text above and see for yourself whether Shoshan ever leaves the word:")
     gr.HTML(value=_dicta_table())
 
     gr.Markdown(

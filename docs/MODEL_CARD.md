@@ -49,7 +49,8 @@ lz.lemma("המטענים", "הוא פרק את המטענים מהמשאית.") 
 - Lemma accuracy **92.4%** out-of-domain (94.3% in-domain).
 - B³ consistency leads DictaBERT-lex on both precision and recall
   (0.965 / 0.953 vs 0.906 / 0.932).
-- **0.0%** low-overlap errors on unseen words, vs 12.3% for a generative baseline.
+- **0.0%** low-overlap errors on unseen words, vs 12.3% for DictaBERT-lex (which
+  predicts each lemma as a single token from its vocabulary).
 
 DictaBERT-lex was trained on more data than is used here, including the domains
 held out for evaluation, so the comparison is conservative.
