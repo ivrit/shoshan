@@ -24,8 +24,15 @@ load the model and are cached after that.
 
 ## Use it
 
-There are two entry points: `lemma()` for **one word-form in its sentence**, and
-`annotate()` for **every word in a sentence**.
+Three entry points, one per unit of text:
+
+| call | input | reach for it when you have… |
+|---|---|---|
+| `lemma(word, sentence)` | one word in context | a single look-up |
+| `annotate(sentence)` | one sentence | a sentence to tag |
+| `lemmatize_text(source)` | a string, file, or folder | a **whole document** to lemmatize or **index for search** |
+
+### One word, one sentence
 
 ```python
 from shoshan import Lemmatizer
@@ -57,6 +64,59 @@ back with an empty lemma and `source="function"`, so you can skip them:
 
 ```python
 lz = Lemmatizer.from_pretrained(blank_function_words=True)
+```
+
+### Whole documents and search indexing
+
+`lemmatize_text(source)` is the call for **complete texts**. Give it a raw
+string, a file path, or a folder path; it segments paragraphs → sentences →
+word tokens and returns a **doc dict**:
+
+```python
+doc = lz.lemmatize_text("הילדים שיחקו בגן. הם בנו ארמון בחול.")
+
+doc["analyzed_text"]   # the lemmas in order, as one string
+doc["tokens"][0]                          # one record per word (shape):
+# {'token': 'הילדים', 'start': 0, 'end': 6, 'lemma': 'ילד',
+#  'pos': 'NOUN', 'source': 'retrieved', 'score': ..., 'sent_id': 0}
+```
+
+The doc dict has five keys:
+
+| key | what it holds |
+|---|---|
+| `text` | the original input, echoed back |
+| `tokens` | one record per word: `token, start, end, lemma, pos, source, score, sent_id` |
+| `analyzed_text` | the lemmas in order, space-joined into one string |
+| `es_tokens` | an Elasticsearch [`_analyze`](https://www.elastic.co/guide/en/elasticsearch/reference/current/indices-analyze.html)-style stream, ready to index |
+| `unknown` | out-of-bank words worth annotating (deduped, with counts) |
+
+**Character offsets round-trip.** Every token carries absolute offsets into
+`text`, so `text[start:end] == token` — slice the original to highlight a hit
+without re-tokenizing.
+
+**Ready for Elasticsearch.** Each `es_tokens` entry is a lemma with its source
+span and position — `{token, start_offset, end_offset, position, type}` — the
+same shape Elasticsearch's `_analyze` emits, so you can feed it straight into an
+index and search by lemma while highlighting the original surface text.
+
+**`source` tells you where each lemma came from:**
+
+- `retrieved` — pulled from the lemma bank,
+- `transduced` — produced by the edit-script fallback (out-of-vocabulary words),
+- `suppletive` — a curated look-up for irregular / closed-class forms whose
+  lemma shares too few letters to retrieve (e.g. *היא* → *הוא*),
+- `function` — only with `blank_function_words=True`: closed-class stopwords
+  come back with an empty lemma and are kept in `tokens` (for provenance) but
+  dropped from `es_tokens` and `analyzed_text`.
+
+**Files and folders.** Pass a file path and you get one doc dict back with a
+`path` key added; pass a folder and you get `{relative_path: doc dict}` for
+every text file under it (`files_glob="*.txt"`, recursive by default):
+
+```python
+doc  = lz.lemmatize_text("notes.txt")      # one doc dict, plus doc["path"]
+docs = lz.lemmatize_text("corpus/")        # {relative_path: doc dict}
 ```
 
 From the command line:
