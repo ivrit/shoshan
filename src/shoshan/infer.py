@@ -15,6 +15,8 @@ used at training time.
 """
 
 from __future__ import annotations
+import os
+import re
 from pathlib import Path
 from typing import Dict, List, Optional, Union
 
@@ -26,12 +28,22 @@ from .model_joint import JointEncoder, UPOS
 from .lemma_bank import LemmaBank
 from .edit_script import apply_script, coverage
 from .suppletive import SuppletiveGate
+from .doc_text import split_sentences, tokenize as doc_tokenize
 from .hub import DEFAULT_REPO, download_weights
 
 # Closed-class parts of speech. For information retrieval these are stopwords, and
 # they are also where the edit-script fallback is least reliable (it has no real
 # lemma to copy toward). With blank_function_words=True they return an empty lemma.
 FUNCTION_POS = {"ADP", "AUX", "CCONJ", "SCONJ", "DET", "PRON", "PART", "INTJ"}
+
+# Word tokens (letters/digits) are lemmatized + indexed; standalone punctuation is not.
+_HAS_WORDCHAR = re.compile(r"[0-9A-Za-z֐-׿]")
+_HEB_LETTER = re.compile(r"[֐-׿]")
+
+
+def _is_valid_lemma(s: str) -> bool:
+    """A real word lemma: >=2 chars, has a Hebrew letter, no digit."""
+    return len(s) >= 2 and bool(_HEB_LETTER.search(s)) and not any(c.isdigit() for c in s)
 
 
 class Lemmatizer:
@@ -60,6 +72,9 @@ class Lemmatizer:
         # the word-forms most worth annotating or adding to the lexicon.
         self.log_misses = log_misses
         self.miss_log: List[Dict] = []
+        # membership set over bank lemmas: a token is only a real dictionary GAP worth
+        # annotating if the lemma we predicted for it is not already in the bank.
+        self._bank_lemma_set = frozenset(self.bank.lemmas)
         # Curated (surface, POS) -> lemma lookup for suppletive forms whose lemma shares
         # too few characters with the surface (היא->הוא, נשים->איש) for the coverage gate
         # to trust the correct retrieval. Optional; ships in the model dir.
@@ -187,3 +202,87 @@ class Lemmatizer:
         sentence = normalize_text(sentence)   # so quote variants don't split acronyms
         items = [{"form": f, "sentence": sentence} for f in tokenize(sentence)]
         return self.lemmatize(items)
+
+    # ---- document API: lemmatize_text (string / file / folder -> doc dict) ----
+    _LEMMA_NOISE = str.maketrans("", "", "־- \t")
+    _CLOSED_POS = frozenset({"ADP", "PRON", "DET", "CCONJ", "SCONJ", "AUX", "PART"})
+
+    def _worth_annotating(self, lemma: str, pos: str = "") -> bool:
+        """A predicted lemma is worth annotating only if it is a real, NOVEL, open-class
+        dictionary gap: not closed-class, not already in the bank, and still a valid lemma
+        once clitic maqaf/hyphen noise is stripped."""
+        if pos in self._CLOSED_POS:
+            return False
+        if lemma in self._bank_lemma_set:
+            return False
+        return _is_valid_lemma(lemma.translate(self._LEMMA_NOISE))
+
+    def _lemmatize_doc(self, text: str) -> Dict:
+        """Lemmatize a document string into the doc-dict shape. Tokenization runs on the
+        ORIGINAL text (doc_text) so token offsets index `text` verbatim (round-trip);
+        lemmatize() normalizes internally."""
+        toks = [t for t in doc_tokenize(text) if _HAS_WORDCHAR.search(t.text)]
+        sents = {s.id: s for s in split_sentences(text)}
+        items = [{"form": t.text,
+                  "sentence": (sents[t.sent_id].text if t.sent_id in sents else t.text)}
+                 for t in toks]
+        preds = self.lemmatize(items) if items else []
+
+        tokens, es_tokens = [], []
+        unknown: Dict[str, Dict] = {}
+        pos_i = 0
+        for t, p in zip(toks, preds):
+            lemma = p["lemma"]
+            tokens.append({"token": t.text, "start": t.start, "end": t.end,
+                           "lemma": lemma, "pos": p["pos"], "source": p["source"],
+                           "score": p["score"], "sent_id": t.sent_id})
+            # blanked function words (source="function", lemma="") stay in tokens for
+            # provenance but are not indexed.
+            if lemma:
+                es_tokens.append({"token": lemma, "start_offset": t.start,
+                                  "end_offset": t.end, "position": pos_i, "type": "lemma"})
+                pos_i += 1
+            # `unknown` = real, novel dictionary gaps: the transduced fallback fired and the
+            # predicted lemma is a genuine open-class gap.
+            if p["source"] == "transduced" and self._worth_annotating(lemma, p["pos"]):
+                u = unknown.get(t.text)
+                if u is None:
+                    unknown[t.text] = {"token": t.text, "lemma": lemma, "pos": p["pos"], "count": 1}
+                else:
+                    u["count"] += 1
+        return {"text": text, "tokens": tokens,
+                "analyzed_text": " ".join(tk["lemma"] for tk in tokens if tk["lemma"]),
+                "es_tokens": es_tokens, "unknown": list(unknown.values())}
+
+    def lemmatize_text(self, source, *, files_glob: str = "*.txt",
+                       recursive: bool = True, verbose: bool = True):
+        """Document/file/folder main call: lemmatize raw text with absolute character
+        offsets + a pseudo-Elasticsearch `_analyze` token stream.
+
+        `source` is a raw string, a file path, or a folder path:
+          - a `Path` or a `str` naming an existing path is a path; anything else is RAW TEXT;
+          - file -> one doc dict (with a `path` key);
+          - dir  -> `{relative_path: doc dict}` for every text file (`files_glob`, recursive);
+          - raw text -> one doc dict.
+
+        Each doc dict: `text` (echoed input), `tokens` (offsets + lemma + pos + source +
+        score + sent_id), `analyzed_text` (space-joined lemmas), `es_tokens` (ES-style
+        stream), `unknown` (out-of-bank transduced tokens worth annotating)."""
+        is_path = isinstance(source, Path) or (isinstance(source, str) and os.path.exists(source))
+        if not is_path:
+            return self._lemmatize_doc(str(source))
+        p = Path(source)
+        if p.is_dir():
+            globber = p.rglob if recursive else p.glob
+            files = [f for f in sorted(globber(files_glob)) if f.is_file()]
+            out = {}
+            for i, f in enumerate(files, 1):
+                if verbose:
+                    print(f"[shoshan] lemmatizing {i}/{len(files)}: {f}", flush=True)
+                doc = self._lemmatize_doc(f.read_text(encoding="utf-8"))
+                doc["path"] = str(f)
+                out[str(f.relative_to(p))] = doc
+            return dict(sorted(out.items()))
+        doc = self._lemmatize_doc(p.read_text(encoding="utf-8"))
+        doc["path"] = str(p)
+        return doc
