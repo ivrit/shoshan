@@ -25,6 +25,7 @@ import torch
 from .model_joint import JointEncoder, UPOS
 from .lemma_bank import LemmaBank
 from .edit_script import apply_script, coverage
+from .suppletive import SuppletiveGate
 from .hub import DEFAULT_REPO, download_weights
 
 # Closed-class parts of speech. For information retrieval these are stopwords, and
@@ -40,7 +41,7 @@ class Lemmatizer:
                  device: str = "cpu", use_router: bool = True,
                  cov_thresh: float = 0.60, min_sim: float = 0.0,
                  use_pos_filter: bool = True, blank_function_words: bool = False,
-                 log_misses: bool = False):
+                 log_misses: bool = False, suppletives_path: Union[str, Path, None] = None):
         self.enc = JointEncoder.load(model_dir, device=device)
         self.bank = LemmaBank.load(bank_dir)
         if self.bank.embeddings is None:
@@ -59,6 +60,11 @@ class Lemmatizer:
         # the word-forms most worth annotating or adding to the lexicon.
         self.log_misses = log_misses
         self.miss_log: List[Dict] = []
+        # Curated (surface, POS) -> lemma lookup for suppletive forms whose lemma shares
+        # too few characters with the surface (היא->הוא, נשים->איש) for the coverage gate
+        # to trust the correct retrieval. Optional; ships in the model dir.
+        sup = Path(suppletives_path) if suppletives_path else Path(model_dir) / "suppletives.csv"
+        self.suppletive_gate = SuppletiveGate(sup) if Path(sup).exists() else None
 
     @classmethod
     def from_pretrained(cls, repo: str = DEFAULT_REPO, device: str = "cpu",
@@ -78,8 +84,9 @@ class Lemmatizer:
         Each item needs a ``form`` and (ideally) a ``sentence``; an optional
         ``pos`` restricts retrieval to lemmas seen with that part of speech.
         Each result adds ``lemma``, ``pos`` (predicted), ``score`` (retrieval
-        cosine), and ``source``: "retrieved" (from the bank), "transduced" (the
-        edit-script fallback), or "function" (a closed-class word blanked because
+        cosine), and ``source``: "retrieved" (from the bank), "suppletive" (a
+        curated suppletive-lexicon lookup, score 1.0), "transduced" (the edit-script
+        fallback), or "function" (a closed-class word blanked because
         ``blank_function_words`` is on).
         """
         from .text import normalize_text
@@ -107,8 +114,15 @@ class Lemmatizer:
                     j = int(np.argmax(sims[k]))
                 ret_lemma, ret_sim = self.bank.lemmas[j], float(sims[k][j])
                 pos = UPOS[pos_pred[k]]
+                # curated suppletive lookup (surface+POS -> lemma), keyed on predicted POS
+                # so homographs are split (accusative את does not match the pronoun entry).
+                sup = (self.suppletive_gate.lemma(form, pos)
+                       if self.use_router and self.suppletive_gate is not None else None)
+                score = ret_sim
                 if self.blank_function_words and pos in FUNCTION_POS:
-                    lemma, source = "", "function"
+                    lemma, source = "", "function"          # IR stopword blanking wins
+                elif sup is not None:
+                    lemma, source, score = sup, "suppletive", 1.0   # curated-dict lookup
                 else:
                     lemma, source = ret_lemma, "retrieved"
                     if self.use_router and epred is not None:
@@ -120,7 +134,7 @@ class Lemmatizer:
                     if self.log_misses:
                         self._record_miss(form, pos, lemma, ret_lemma, ret_sim)
                 out.append({**it, "form": form, "lemma": lemma, "pos": pos,
-                            "score": ret_sim, "source": source})
+                            "score": score, "source": source})
         return out
 
     def _record_miss(self, form: str, pos: str, lemma: str,
