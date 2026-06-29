@@ -15,14 +15,11 @@ from dataclasses import dataclass
 # 1,000.50 -> one token, matching IAHLT gold). The separator must be FOLLOWED by a digit,
 # so a sentence-final period ("...היה 3.") stays a separate punctuation token.
 _NUM = r"\d+(?:[.,]\d+)+"
-# A word = Hebrew/Latin/digit run, keeping internal geresh/gershayim together
-# (so acronyms and abbreviations stay one token); any other non-space char is its own token.
-# Inclusive-writing gender-slash (כותב/ת, חבר/ה, הצטרף/י) is kept as ONE word: a base +
-# "/" + a short gendered ending at a boundary. Digit/letter slashes (12/2020, א/ב) are
-# unaffected, since the ending must be a Hebrew gendered suffix.
-_GENDER = "יות|ות|ית|ים|ת|ה|ן|י"
-_WORD = (r"[A-Za-z֐-׿0-9]+(?:[\"'׳״][A-Za-z֐-׿0-9]+)*"
-         r"(?:/(?:" + _GENDER + r")(?![֐-׿0-9]))?")
+# A word = Hebrew/Latin/digit run, keeping internal geresh/gershayim and slashes together
+# (so acronyms, abbreviations, dates (12/2020), and fractions are ONE token). Slash is
+# included in the repeating group so any word/digit runs joined by "/" stay together —
+# this matches text.py's tokenizer and keeps annotate() and lemmatize_text() consistent.
+_WORD = r"""[A-Za-z֐-׿0-9]+(?:["'׳״/][A-Za-z֐-׿0-9]+)*"""
 # numbers first (greedy) so 3.14 isn't pre-empted by the bare-digit branch of _WORD.
 _TOKEN_RE = re.compile(_NUM + r"|" + _WORD + r"|[^\s]", re.UNICODE)
 # split after sentence-final punctuation followed by space (3.14 is safe: no space after dot).

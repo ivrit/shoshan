@@ -21,7 +21,8 @@ import csv
 # A few classes are intentionally mapped to several UPOS (e.g. a Hebrew copula may be
 # tagged AUX or PRON; a participle VERB/ADJ/NOUN) so the gate fires regardless.
 _POS2UPOS = {
-    "pronoun": ("PRON",), "copula": ("AUX", "PRON"), "interrogative": ("PRON", "DET"),
+    "pronoun": ("PRON",), "copula": ("AUX", "PRON", "VERB"), "interrogative": ("PRON", "DET"),
+    "demonstrative": ("DET", "PRON"),
     "quantifier": ("DET",), "numeral": ("NUM",), "modal": ("AUX", "VERB"),
     "existential": ("VERB", "AUX"), "preposition": ("ADP",), "adverb": ("ADV",),
     "conjunction": ("CCONJ", "SCONJ"), "negation": ("PART", "ADV"),

@@ -31,6 +31,8 @@ from .suppletive import SuppletiveGate
 from .doc_text import split_sentences, tokenize as doc_tokenize
 from .hub import DEFAULT_REPO, download_weights
 
+_PKG_DATA = Path(__file__).parent / "data"
+
 # Closed-class parts of speech. For information retrieval these are stopwords, and
 # they are also where the edit-script fallback is least reliable (it has no real
 # lemma to copy toward). With blank_function_words=True they return an empty lemma.
@@ -75,11 +77,26 @@ class Lemmatizer:
         # membership set over bank lemmas: a token is only a real dictionary GAP worth
         # annotating if the lemma we predicted for it is not already in the bank.
         self._bank_lemma_set = frozenset(self.bank.lemmas)
-        # Curated (surface, POS) -> lemma lookup for suppletive forms whose lemma shares
-        # too few characters with the surface (היא->הוא, נשים->איש) for the coverage gate
-        # to trust the correct retrieval. Optional; ships in the model dir.
+        # Suppletive gate: (surface, POS) -> lemma for forms the coverage gate can't
+        # trust (היא->הוא, זאת->זה, etc.). Prefer model_dir copy (may be more recent);
+        # fall back to the package-bundled CSV.
         sup = Path(suppletives_path) if suppletives_path else Path(model_dir) / "suppletives.csv"
-        self.suppletive_gate = SuppletiveGate(sup) if Path(sup).exists() else None
+        if not sup.exists():
+            sup = _PKG_DATA / "suppletives.csv"
+        self.suppletive_gate = SuppletiveGate(sup) if sup.exists() else None
+        # Acronym gate: set of known Hebrew acronym surface forms (Wiktionary, CC BY-SA).
+        # When a form is a known acronym, skip the coverage/transduction check entirely —
+        # the retrieval result stands and the token is labeled source="acronym".
+        acr_path = Path(model_dir) / "wiktionary_acronyms.csv"
+        if not acr_path.exists():
+            acr_path = _PKG_DATA / "wiktionary_acronyms.csv"
+        self._acronym_set: frozenset = frozenset()
+        if acr_path.exists():
+            import csv as _csv
+            with open(acr_path, encoding="utf-8-sig", newline="") as fh:
+                self._acronym_set = frozenset(
+                    r["surface"].strip() for r in _csv.DictReader(fh) if r.get("surface", "").strip()
+                )
 
     @classmethod
     def from_pretrained(cls, repo: str = DEFAULT_REPO, device: str = "cpu",
@@ -100,8 +117,9 @@ class Lemmatizer:
         ``pos`` restricts retrieval to lemmas seen with that part of speech.
         Each result adds ``lemma``, ``pos`` (predicted), ``score`` (retrieval
         cosine), and ``source``: "retrieved" (from the bank), "suppletive" (a
-        curated suppletive-lexicon lookup, score 1.0), "transduced" (the edit-script
-        fallback), or "function" (a closed-class word blanked because
+        curated suppletive-lexicon lookup, score 1.0), "acronym" (a known Hebrew
+        acronym, retrieval accepted without the coverage check), "transduced" (the
+        edit-script fallback), or "function" (a closed-class word blanked because
         ``blank_function_words`` is on).
         """
         from .text import normalize_text
@@ -138,6 +156,8 @@ class Lemmatizer:
                     lemma, source = "", "function"          # IR stopword blanking wins
                 elif sup is not None:
                     lemma, source, score = sup, "suppletive", 1.0   # curated-dict lookup
+                elif form in self._acronym_set:
+                    lemma, source = form, "acronym"         # known acronym: lemma = surface form
                 else:
                     lemma, source = ret_lemma, "retrieved"
                     if self.use_router and epred is not None:
@@ -154,14 +174,13 @@ class Lemmatizer:
 
     def _record_miss(self, form: str, pos: str, lemma: str,
                      ret_lemma: str, ret_sim: float) -> None:
-        """Flag a token where retrieval is NOT trusted: the bank's best lemma is
-        morphologically implausible for the form (coverage below threshold) or its
-        similarity is below the floor. These are the likely-OOV / bank-miss tokens
-        worth annotating or adding to the lexicon. A base form that is its own lemma
-        (ספר->ספר, coverage 1.0) is correctly not flagged even though lemma==form."""
+        """Flag a token where retrieval is NOT trusted AND the result is a genuine,
+        novel dictionary gap worth annotating (open-class, not already in the bank)."""
         cov = coverage(form, ret_lemma)
         cov_low, sim_low = cov < self.cov_thresh, ret_sim < self.min_sim
         if not (cov_low or sim_low):
+            return
+        if not self._worth_annotating(lemma, pos):
             return
         reasons = [r for r, on in (("coverage_low", cov_low), ("sim_low", sim_low)) if on]
         if lemma == form:  # the transducer also gave up and copied the surface form
@@ -221,9 +240,10 @@ class Lemmatizer:
         """Lemmatize a document string into the doc-dict shape. Tokenization runs on the
         ORIGINAL text (doc_text) so token offsets index `text` verbatim (round-trip);
         lemmatize() normalizes internally."""
+        from .text import collapse_gender_slash
         toks = [t for t in doc_tokenize(text) if _HAS_WORDCHAR.search(t.text)]
         sents = {s.id: s for s in split_sentences(text)}
-        items = [{"form": t.text,
+        items = [{"form": collapse_gender_slash(t.text),
                   "sentence": (sents[t.sent_id].text if t.sent_id in sents else t.text)}
                  for t in toks]
         preds = self.lemmatize(items) if items else []
