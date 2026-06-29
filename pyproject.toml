@@ -34,3 +34,6 @@ shoshan = "shoshan.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+shoshan = ["data/*.csv"]
