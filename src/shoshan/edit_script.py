@@ -49,9 +49,15 @@ def derive_script(form: str, lemma: str) -> str:
     return SEP.join([str(del_pre), add_pre, str(del_suf), add_suf])
 
 
+_MED_TO_FINAL = {"כ": "ך", "מ": "ם", "נ": "ן", "פ": "ף", "צ": "ץ"}
+
+
 def apply_script(form: str, script: str) -> str:
     """Apply a script to a (possibly unseen) form. Falls back to the form on any
-    inconsistency — so it is always safe."""
+    inconsistency — so it is always safe.
+
+    Always restores the final Hebrew letter form on the output (e.g. נ→ן at
+    word-end): the edit core may expose a medial letter that should be final."""
     if script.startswith("R" + SEP):
         return script[2:]
     try:
@@ -60,9 +66,12 @@ def apply_script(form: str, script: str) -> str:
         if dp + ds > len(form):
             return form
         core = form[dp: len(form) - ds] if ds else form[dp:]
-        return ap + core + asuf
+        result = ap + core + asuf
     except Exception:
         return form
+    if result:
+        result = result[:-1] + _MED_TO_FINAL.get(result[-1], result[-1])
+    return result
 
 
 def build_vocab(pairs, min_count: int = 1) -> List[str]:
