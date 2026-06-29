@@ -87,19 +87,19 @@ class JointEncoder(nn.Module):
         self.tok.save_pretrained(d / "encoder")
         np.save(d / "pos_anchors.npy", self.pos_head.weight.detach().cpu().numpy().astype(np.float32))
         np.save(d / "pos_bias.npy", self.pos_head.bias.detach().cpu().numpy().astype(np.float32))
-        (d / "pos_labels.json").write_text(json.dumps(UPOS, ensure_ascii=False))
+        (d / "pos_labels.json").write_text(json.dumps(UPOS, ensure_ascii=False), encoding="utf-8")
         if self.edit_head is not None:
             np.save(d / "edit_weight.npy", self.edit_head.weight.detach().cpu().numpy().astype(np.float32))
             np.save(d / "edit_bias.npy", self.edit_head.bias.detach().cpu().numpy().astype(np.float32))
-            (d / "scripts.json").write_text(json.dumps(self.scripts, ensure_ascii=False))
+            (d / "scripts.json").write_text(json.dumps(self.scripts, ensure_ascii=False), encoding="utf-8")
         (d / "joint_meta.json").write_text(json.dumps(
             {"backbone": self.backbone_name, "num_pos": len(UPOS),
-             "num_scripts": len(self.scripts)}, ensure_ascii=False, indent=2))
+             "num_scripts": len(self.scripts)}, ensure_ascii=False, indent=2), encoding="utf-8")
 
     @classmethod
     def load(cls, in_dir: str | Path, device: str = "cpu") -> "JointEncoder":
         d = Path(in_dir)
-        meta = json.loads((d / "joint_meta.json").read_text())
+        meta = json.loads((d / "joint_meta.json").read_text(encoding="utf-8"))
         obj = cls.__new__(cls)
         nn.Module.__init__(obj)
         obj.backbone_name = meta["backbone"]
@@ -110,7 +110,7 @@ class JointEncoder(nn.Module):
         obj.pos_head.weight.data = torch.tensor(np.load(d / "pos_anchors.npy"))
         obj.pos_head.bias.data = torch.tensor(np.load(d / "pos_bias.npy"))
         if (d / "scripts.json").exists():
-            obj.scripts = json.loads((d / "scripts.json").read_text())
+            obj.scripts = json.loads((d / "scripts.json").read_text(encoding="utf-8"))
             obj.edit_head = nn.Linear(dim, len(obj.scripts))
             obj.edit_head.weight.data = torch.tensor(np.load(d / "edit_weight.npy"))
             obj.edit_head.bias.data = torch.tensor(np.load(d / "edit_bias.npy"))
