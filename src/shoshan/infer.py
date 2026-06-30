@@ -97,6 +97,18 @@ class Lemmatizer:
                 self._acronym_set = frozenset(
                     r["surface"].strip() for r in _csv.DictReader(fh) if r.get("surface", "").strip()
                 )
+        # Coverage bypass: surface forms seen ≥10 times in open training data that have
+        # structurally low coverage against their lemma (suppletive plurals, prefixed forms,
+        # etc.) but for which the encoder retrieves correctly. PRON forms are bypassed
+        # unconditionally via predicted-POS check; this file covers remaining closed-class
+        # forms (copulas, common nouns/verbs) with the same structural low-coverage pattern.
+        bypass_path = Path(model_dir) / "coverage_bypass_forms.txt"
+        if not bypass_path.exists():
+            bypass_path = _PKG_DATA / "coverage_bypass_forms.txt"
+        self._coverage_bypass: frozenset = frozenset()
+        if bypass_path.exists():
+            with open(bypass_path, encoding="utf-8") as fh:
+                self._coverage_bypass = frozenset(ln.strip() for ln in fh if ln.strip())
 
     @classmethod
     def from_pretrained(cls, repo: str = DEFAULT_REPO, device: str = "cpu",
@@ -118,9 +130,10 @@ class Lemmatizer:
         Each result adds ``lemma``, ``pos`` (predicted), ``score`` (retrieval
         cosine), and ``source``: "retrieved" (from the bank), "suppletive" (a
         curated suppletive-lexicon lookup, score 1.0), "acronym" (a known Hebrew
-        acronym, retrieval accepted without the coverage check), "transduced" (the
-        edit-script fallback), or "function" (a closed-class word blanked because
-        ``blank_function_words`` is on).
+        acronym, retrieval accepted without the coverage check), "bypass" (retrieval
+        accepted without the coverage check for PRON or high-frequency closed-class
+        forms), "transduced" (the edit-script fallback), or "function" (a
+        closed-class word blanked because ``blank_function_words`` is on).
         """
         from .text import normalize_text
         out: List[Dict] = []
@@ -158,6 +171,8 @@ class Lemmatizer:
                     lemma, source, score = sup, "suppletive", 1.0   # curated-dict lookup
                 elif form in self._acronym_set:
                     lemma, source = form, "acronym"         # known acronym: lemma = surface form
+                elif self.use_router and (pos == "PRON" or form in self._coverage_bypass):
+                    lemma, source = ret_lemma, "bypass"     # retrieval trusted; coverage not checked
                 else:
                     lemma, source = ret_lemma, "retrieved"
                     if self.use_router and epred is not None:
