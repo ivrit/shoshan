@@ -10,7 +10,7 @@ lemma by editing the input word itself (stripping a prefix, fixing a suffix).
 Either way the output is a real lemma or a bounded edit of the word you gave it.
 It cannot return a string that came from nowhere.
 
-- **Weights:** <https://huggingface.co/noamor/shoshan>
+- **Weights:** <https://huggingface.co/HebArabNlpProject/shoshan>
 - **Demo:** <https://huggingface.co/spaces/noamor/shoshan-demo>
 
 ## Install
@@ -205,7 +205,7 @@ DictaBERT-lex was trained on more data than we use here, including the domains w
 hold out, so the comparison is conservative.
 
 The training data and evaluation splits live in a companion dataset,
-[`noamor/shoshan-data`](https://huggingface.co/datasets/noamor/shoshan-data), and
+[`HebArabNlpProject/shoshan-data`](https://huggingface.co/datasets/HebArabNlpProject/shoshan-data), and
 download on demand:
 
 ```python

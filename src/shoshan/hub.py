@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Optional
 
-DEFAULT_REPO = "noamor/shoshan"
+DEFAULT_REPO = "HebArabNlpProject/shoshan"
 
 
 def download_weights(repo: str = DEFAULT_REPO, revision: Optional[str] = None) -> Path:

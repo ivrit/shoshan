@@ -13,7 +13,7 @@ to sample and release the out-of-domain evaluation sentences used in this work.
 ## What we release
 
 The data is hosted as the Hugging Face dataset
-[`noamor/shoshan-data`](https://huggingface.co/datasets/noamor/shoshan-data) (load it with
+[`HebArabNlpProject/shoshan-data`](https://huggingface.co/datasets/HebArabNlpProject/shoshan-data) (load it with
 `shoshan.data.load(split)`). Filenames below are relative to that dataset.
 
 | artifact | source | license |
@@ -22,7 +22,7 @@ The data is hosted as the Hugging Face dataset
 | out-of-domain benchmark (`ood*.csv`) | 100 length-stratified sentences sampled per external IAHLT domain (Bagatz, GeekTime, Dicta) | CC BY 4.0, with IAHLT permission |
 | unseen-lemma split (`oov.csv`) | rare lemmas held out from the open in-domain data | CC BY 4.0 |
 | lemma bank | open treebank lemmas ∪ a public Hebrew lemma lexicon (with the MILA morphological lexicon) | see below |
-| encoder weights (`noamor/shoshan`) | fine-tuned from DictaBERT (`dicta-il/dictabert`) | per the backbone's license |
+| encoder weights (`HebArabNlpProject/shoshan`) | fine-tuned from DictaBERT (`dicta-il/dictabert`) | per the backbone's license |
 | code | this repository | MIT |
 
 All splits are rendered to **one content lemma per surface token** by a hand-developed rule
@@ -36,8 +36,10 @@ are a single character, contain a digit, or are punctuation/symbols are filtered
   redistributable under the open license, so they are not part of the released training data.
 - **A model trained on all five sources**: trained on IAHLT data provided for experimental
   use only; not released and not reported as a result.
-- **Any military / defense-related data and dictionaries**: out of scope and excluded
-  entirely from the release.
+- **Military / defense-related data sources and dictionaries**: no military or defense corpus,
+  lexicon, or acronym dictionary is used as a source. (Incidental references to the military that
+  occur naturally in the general-domain Knesset and Wikipedia text — and the corresponding treebank
+  lemmas in the bank — are ordinary Hebrew vocabulary and are not scrubbed.)
 - **Credentials and internal artifacts**: API keys, internal planning notes, and
   procurement references are not part of the public release.
 

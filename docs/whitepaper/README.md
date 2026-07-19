@@ -16,6 +16,6 @@ pip install playwright && playwright install chromium
 python render.py shoshan_whitepaper.html shoshan-whitepaper.pdf
 ```
 
-`build.py` downloads the Shoshan weights (`noamor/shoshan`) and DictaBERT-lex
+`build.py` downloads the Shoshan weights (`HebArabNlpProject/shoshan`) and DictaBERT-lex
 (`dicta-il/dictabert-lex`) from the Hugging Face Hub on first run. To change which
 sentences appear, edit the `FEATURED` list in `build.py`.

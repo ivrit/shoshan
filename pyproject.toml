@@ -26,7 +26,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://github.com/ivrit/shoshan"
-Weights = "https://huggingface.co/noamor/shoshan"
+Weights = "https://huggingface.co/HebArabNlpProject/shoshan"
 Demo = "https://huggingface.co/spaces/noamor/shoshan-demo"
 
 [project.scripts]

@@ -103,8 +103,8 @@ with gr.Blocks(title="Shoshan vs DictaBERT-lex") as demo:
     out = gr.HTML(label="Shoshan vs DictaBERT-lex")
     gr.Markdown(
         "Shoshan: [code](https://github.com/ivrit/shoshan) · "
-        "[weights](https://huggingface.co/noamor/shoshan) · "
-        "[data](https://huggingface.co/datasets/noamor/shoshan-data). "
+        "[weights](https://huggingface.co/HebArabNlpProject/shoshan) · "
+        "[data](https://huggingface.co/datasets/HebArabNlpProject/shoshan-data). "
         "DictaBERT-lex: [dicta-il/dictabert-lex](https://huggingface.co/dicta-il/dictabert-lex).")
     btn.click(run, inp, out, api_name="predict")
     inp.submit(run, inp, out, api_name=False)

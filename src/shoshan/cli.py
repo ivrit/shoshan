@@ -17,7 +17,7 @@ def main(argv=None):
     ap.add_argument("text", nargs="*", help="Hebrew sentence to lemmatize")
     ap.add_argument("--csv", nargs=2, metavar=("IN", "OUT"),
                     help="batch mode: IN has columns form,sentence[,pos]; OUT gets lemmas")
-    ap.add_argument("--repo", default=None, help="Hugging Face weights repo (default: noamor/shoshan)")
+    ap.add_argument("--repo", default=None, help="Hugging Face weights repo (default: HebArabNlpProject/shoshan)")
     ap.add_argument("--device", default="cpu")
     ap.add_argument("--no-router", action="store_true",
                     help="disable the edit-script fallback (retrieve only)")

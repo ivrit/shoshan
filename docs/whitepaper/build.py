@@ -157,8 +157,8 @@ no retraining. The model even flags its own unknown words as a ranked list to cu
 
 <p class='links'><b>Get it.</b>&nbsp;
 code <a href='https://github.com/ivrit/shoshan'>github.com/ivrit/shoshan</a> ·
-weights <a href='https://huggingface.co/noamor/shoshan'>huggingface.co/noamor/shoshan</a> ·
-data <a href='https://huggingface.co/datasets/noamor/shoshan-data'>noamor/shoshan-data</a> ·
+weights <a href='https://huggingface.co/HebArabNlpProject/shoshan'>huggingface.co/HebArabNlpProject/shoshan</a> ·
+data <a href='https://huggingface.co/datasets/HebArabNlpProject/shoshan-data'>HebArabNlpProject/shoshan-data</a> ·
 live demo <a href='https://huggingface.co/spaces/noamor/shoshan-demo'>noamor/shoshan-demo</a></p>
 <p class='foot'>Shoshan is fine-tuned from DictaBERT. Comparison figures are on identical aligned tokens;
 DictaBERT-lex was trained on substantially more data, including the registers held out here.

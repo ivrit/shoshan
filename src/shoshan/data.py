@@ -13,7 +13,7 @@ no install-time fetch). Columns: form, lemma, pos, sentence, source, sent_id.
 
 from __future__ import annotations
 
-DATASET_REPO = "noamor/shoshan-data"
+DATASET_REPO = "HebArabNlpProject/shoshan-data"
 
 _FILES = {
     "train": "train.csv", "dev": "dev.csv", "test": "test.csv",
