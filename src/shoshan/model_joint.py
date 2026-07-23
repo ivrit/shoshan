@@ -15,7 +15,7 @@ model input) and mean-pools its subword vectors (BLINK-style mention pooling).
 from __future__ import annotations
 import json
 from pathlib import Path
-from typing import List, Tuple, Optional
+from typing import Dict, List, Tuple, Optional
 
 import numpy as np
 import torch
@@ -55,27 +55,60 @@ class JointEncoder(nn.Module):
         out = self.enc(**b).last_hidden_state
         return F.normalize(masked_mean(out, b["attention_mask"]), dim=-1)
 
-    def encode_query(self, sentences: List[str], spans: List[Tuple[int, int]],
-                     max_len: int = 160):
-        """Returns (q, pos_logits, edit_logits). edit_logits is None if no edit head."""
+    def encode_sentences(self, sentences: List[str], max_len: int = 160):
+        """Run the encoder ONCE over each sentence (the expensive forward pass).
+
+        Returns (hidden, offsets): `hidden` is last_hidden_state [B, T, D]; `offsets`
+        is the list of B per-token (char_start, char_end) rows. Pooling is factored out
+        into `pool_spans`, so a sentence encoded once here can serve many token spans —
+        the encode-once path (`Lemmatizer.lemmatize`) encodes each DISTINCT sentence once
+        and pools every token's span from the shared hidden state."""
         b = self.tok(sentences, padding=True, truncation=True, max_length=max_len,
                      return_offsets_mapping=True, return_tensors="pt")
-        offsets = b.pop("offset_mapping")
+        offsets = b.pop("offset_mapping").tolist()
         b = {k: v.to(self.device) for k, v in b.items()}
-        out = self.enc(**b).last_hidden_state
-        B, T, _ = out.shape
-        span_mask = torch.zeros(B, T, device=self.device)
-        off = offsets.tolist()
-        for i, (s, e) in enumerate(spans):
-            for t in range(T):
-                cs, ce = off[i][t]
-                if cs == ce:
-                    continue
-                if cs < e and ce > s:
-                    span_mask[i, t] = 1.0
-            if span_mask[i].sum() == 0:
-                span_mask[i, 0] = 1.0
-        q = F.normalize(masked_mean(out, span_mask), dim=-1)
+        return self.enc(**b).last_hidden_state, offsets
+
+    def pool_spans(self, hidden: torch.Tensor, offsets, rows: List[int],
+                   spans: List[Tuple[int, int]]) -> torch.Tensor:
+        """Mean-pool each (row, span) from a shared encode → q [len(spans), D], L2-norm.
+
+        `rows[k]` selects the sentence row in `hidden` for span `spans[k]=(s,e)`; many
+        spans may share one row (encode-once). Reproduces `encode_query`'s span mask
+        exactly: a subword token is included when its char span overlaps [s, e)
+        (`cs < e and ce > s`), with a position-0 fallback when the form was truncated out
+        of the window. Spans that share a hidden row are pooled with a single
+        [K, T]·[T, D] matmul (the shared row is never duplicated across spans)."""
+        T, D = hidden.shape[1], hidden.shape[2]
+        q = hidden.new_zeros(len(spans), D)
+        groups: Dict[int, List[int]] = {}
+        for k, r in enumerate(rows):
+            groups.setdefault(r, []).append(k)
+        for r, ks in groups.items():
+            off_r = offsets[r]
+            m = hidden.new_zeros(len(ks), T)
+            for j, k in enumerate(ks):
+                s, e = spans[k]
+                for t in range(T):
+                    cs, ce = off_r[t]
+                    if cs == ce:
+                        continue
+                    if cs < e and ce > s:
+                        m[j, t] = 1.0
+                if m[j].sum() == 0:
+                    m[j, 0] = 1.0
+            pooled = (m @ hidden[r]) / m.sum(1, keepdim=True).clamp(min=1e-9)
+            q[ks] = F.normalize(pooled, dim=-1)
+        return q
+
+    def encode_query(self, sentences: List[str], spans: List[Tuple[int, int]],
+                     max_len: int = 160):
+        """Returns (q, pos_logits, edit_logits). edit_logits is None if no edit head.
+
+        1:1 sentences↔spans (one span per sentence). The runtime document path dedups
+        sentences and calls encode_sentences + pool_spans directly (encode-once)."""
+        hidden, offsets = self.encode_sentences(sentences, max_len)
+        q = self.pool_spans(hidden, offsets, list(range(len(sentences))), spans)
         pos_logits = self.pos_head(q)
         edit_logits = self.edit_head(q) if self.edit_head is not None else None
         return q, pos_logits, edit_logits

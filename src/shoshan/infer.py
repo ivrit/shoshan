@@ -68,6 +68,14 @@ class Lemmatizer:
                 f"lemmas.npy (the encoded lemma vectors).")
         self.L = self.bank.embeddings  # [n, dim], L2-normalized
         self.device = device
+        # On an accelerator, hold the bank as a device tensor so retrieval (q @ L.T +
+        # argmax) runs on-device: only the per-item (index, score) results return to the
+        # host, not the chunk × n_bank similarity matrix. On CPU this stays None and the
+        # numpy path is used (output unchanged). Costs ~n_bank·dim·4 B of device memory.
+        self.L_t = None
+        self._cand_dev_cache: Dict[int, "torch.Tensor"] = {}
+        if str(self.device) != "cpu":
+            self.L_t = torch.from_numpy(np.ascontiguousarray(self.L)).to(self.device)
         self.use_router = use_router
         self.cov_thresh = cov_thresh
         self.min_sim = min_sim
@@ -138,6 +146,45 @@ class Lemmatizer:
         st = sentence.find(form)
         return (st, st + len(form)) if st >= 0 else (0, len(form))
 
+    def _cand_tensor(self, cand: np.ndarray) -> "torch.Tensor":
+        """Device tensor for a POS candidate-id array, cached by the array's identity
+        (LemmaBank.candidate_ids returns a stable per-POS cached array, so id() is a key)."""
+        key = id(cand)
+        t = self._cand_dev_cache.get(key)
+        if t is None:
+            t = torch.as_tensor(cand, device=self.device)
+            self._cand_dev_cache[key] = t
+        return t
+
+    def _retrieve(self, qc: "torch.Tensor", cands: List):
+        """Nearest bank lemma per row of `qc` → (bank indices, retrieval cosines).
+
+        On an accelerator (self.L_t set) the matmul + argmax run on-device and only the
+        per-item results cross back to the host; a per-item POS filter masks that item's
+        row on-device. On CPU it is the numpy dot product + argmax — identical to the
+        pre-optimization path (so CPU output is unchanged)."""
+        if self.L_t is not None:
+            with torch.no_grad():
+                sims_t = qc @ self.L_t.T                     # [chunk, n_bank] on device
+                vals, idx = sims_t.max(dim=1)                # full-bank nearest
+            js = idx.tolist(); ret_sims = vals.tolist()
+            for k, cand in enumerate(cands):                 # POS-filtered items (if any)
+                if cand is not None:
+                    sub = sims_t[k].index_select(0, self._cand_tensor(cand))
+                    m = int(sub.argmax())
+                    js[k] = int(cand[m]); ret_sims[k] = float(sub[m])
+            return js, ret_sims
+        sims = qc.cpu().numpy() @ self.L.T                   # [chunk, n_bank]
+        js, ret_sims = [], []
+        for k in range(sims.shape[0]):
+            cand = cands[k]
+            if cand is not None:
+                j = int(cand[int(np.argmax(sims[k][cand]))])
+            else:
+                j = int(np.argmax(sims[k]))
+            js.append(j); ret_sims.append(float(sims[k][j]))
+        return js, ret_sims
+
     def lemmatize(self, items: List[Dict[str, str]], batch: int = 256) -> List[Dict]:
         """Lemmatize a list of dicts.
 
@@ -154,29 +201,60 @@ class Lemmatizer:
         is on).
         """
         from .text import normalize_text
+        if not items:
+            return []
+        # Normalize forms + sentences the same way training forms are (quote/prime variants
+        # -> ASCII); length-preserving, so spans stay valid. Done for ALL items up front.
+        forms = [normalize_text(str(it["form"])) for it in items]
+        sents = [normalize_text(str(it.get("sentence") or it["form"])) for it in items]
+        spans = [self._span(f, s, it.get("start")) for f, s, it in zip(forms, sents, items)]
+
+        # --- encode-once ---------------------------------------------------------------
+        # A document sends one item PER TOKEN, each repeating its full sentence. Encoding
+        # the sentence once per token wastes N-1 of every N forward passes (only the pooled
+        # span differs). So encode each DISTINCT sentence a single time and pool every
+        # token's span from that shared hidden state, dropping encoder forward passes from
+        # O(tokens) to O(distinct sentences).
+        uniq: Dict[str, int] = {}
+        unique_sents: List[str] = []
+        items_of: List[List[int]] = []      # unique-sentence index -> item indices pooling from it
+        for idx, s in enumerate(sents):
+            u = uniq.get(s)
+            if u is None:
+                u = len(unique_sents); uniq[s] = u
+                unique_sents.append(s); items_of.append([])
+            items_of[u].append(idx)
+        dim = self.enc.enc.config.hidden_size
+        qt = torch.zeros((len(items), dim), device=self.device)   # per-item span vector, item order
+        with torch.no_grad():
+            for b0 in range(0, len(unique_sents), batch):
+                sub = unique_sents[b0:b0 + batch]
+                hidden, offsets = self.enc.encode_sentences(sub)   # ONE forward per distinct sentence
+                rows, sp, dst = [], [], []
+                for local_u in range(len(sub)):
+                    for idx in items_of[b0 + local_u]:
+                        rows.append(local_u); sp.append(spans[idx]); dst.append(idx)
+                qt[dst] = self.enc.pool_spans(hidden, offsets, rows, sp)
+
+        # --- route each token (chunked so the heads + sims matmul stay memory-bounded) ---
+        # The per-item routing logic is unchanged from the per-token-encode version; only
+        # the source of q is now the shared encode above.
         out: List[Dict] = []
-        for i in range(0, len(items), batch):
-            chunk = items[i:i + batch]
-            # normalize input the same way training forms are normalized (quote/prime
-            # variants -> ASCII); length-preserving, so spans stay valid.
-            sents = [normalize_text(str(it.get("sentence") or it["form"])) for it in chunk]
-            forms = [normalize_text(str(it["form"])) for it in chunk]
-            spans = [self._span(f, s, it.get("start")) for f, s, it in zip(forms, sents, chunk)]
+        for lo in range(0, len(items), batch):
+            hi = min(lo + batch, len(items))
+            qc = qt[lo:hi]
             with torch.no_grad():
-                q, pos_logits, edit_logits = self.enc.encode_query(sents, spans)
-            q = q.cpu().numpy()
+                pos_logits = self.enc.pos_head(qc)
+                edit_logits = self.enc.edit_head(qc) if self.enc.edit_head is not None else None
             pos_pred = pos_logits.argmax(1).tolist()
             epred = edit_logits.argmax(1).tolist() if edit_logits is not None else None
-            sims = q @ self.L.T
-            for k, it in enumerate(chunk):
-                form = forms[k]
-                cand = (self.bank.candidate_ids(it.get("pos", ""))
-                        if self.use_pos_filter else None)
-                if cand is not None:
-                    j = int(cand[int(np.argmax(sims[k][cand]))])
-                else:
-                    j = int(np.argmax(sims[k]))
-                ret_lemma, ret_sim = self.bank.lemmas[j], float(sims[k][j])
+            cands = [self.bank.candidate_ids(items[lo + k].get("pos", ""))
+                     if self.use_pos_filter else None for k in range(hi - lo)]
+            js, ret_sims = self._retrieve(qc, cands)
+            for k in range(hi - lo):
+                it = items[lo + k]
+                form = forms[lo + k]
+                ret_lemma, ret_sim = self.bank.lemmas[js[k]], ret_sims[k]
                 pos = UPOS[pos_pred[k]]
                 # curated suppletive lookup (surface+POS -> lemma), keyed on predicted POS
                 # so homographs are split (accusative את does not match the pronoun entry).
@@ -248,12 +326,12 @@ class Lemmatizer:
         """Return just the lemma string for one form in context."""
         return self.lemmatize([{"form": form, "sentence": sentence or form}])[0]["lemma"]
 
-    def annotate(self, sentence: str) -> List[Dict]:
+    def annotate(self, sentence: str, batch: int = 256) -> List[Dict]:
         """Tokenize `sentence` and lemmatize every word token in context."""
         from .text import tokenize, normalize_text
         sentence = normalize_text(sentence)   # so quote variants don't split acronyms
         items = [{"form": f, "sentence": sentence} for f in tokenize(sentence)]
-        return self.lemmatize(items)
+        return self.lemmatize(items, batch=batch)
 
     # ---- document API: lemmatize_text (string / file / folder -> doc dict) ----
     _LEMMA_NOISE = str.maketrans("", "", "־- \t")
@@ -269,10 +347,11 @@ class Lemmatizer:
             return False
         return _is_valid_lemma(lemma.translate(self._LEMMA_NOISE))
 
-    def _lemmatize_doc(self, text: str) -> Dict:
+    def _lemmatize_doc(self, text: str, batch: int = 256) -> Dict:
         """Lemmatize a document string into the doc-dict shape. Tokenization runs on the
         ORIGINAL text (doc_text) so token offsets index `text` verbatim (round-trip);
-        lemmatize() normalizes internally."""
+        lemmatize() normalizes internally. `batch` = distinct sentences per encoder forward
+        pass (the throughput lever; see lemmatize)."""
         from .text import collapse_gender_slash
         toks = [t for t in doc_tokenize(text) if _HAS_WORDCHAR.search(t.text)]
         sents = {s.id: s for s in split_sentences(text)}
@@ -285,7 +364,7 @@ class Lemmatizer:
             start = (t.start - s.start) if s is not None else None
             items.append({"form": collapse_gender_slash(t.text), "sentence": sent_text,
                           "start": start})
-        preds = self.lemmatize(items) if items else []
+        preds = self.lemmatize(items, batch=batch) if items else []
 
         tokens, es_tokens = [], []
         unknown: Dict[str, Dict] = {}
@@ -313,10 +392,13 @@ class Lemmatizer:
                 "analyzed_text": " ".join(tk["lemma"] for tk in tokens if tk["lemma"]),
                 "es_tokens": es_tokens, "unknown": list(unknown.values())}
 
-    def lemmatize_text(self, source, *, files_glob: str = "*.txt",
+    def lemmatize_text(self, source, *, batch: int = 256, files_glob: str = "*.txt",
                        recursive: bool = True, verbose: bool = True):
         """Document/file/folder main call: lemmatize raw text with absolute character
         offsets + a pseudo-Elasticsearch `_analyze` token stream.
+
+        `batch` = distinct sentences per encoder forward pass — the GPU/batched throughput
+        lever. Labels are stable across `batch` values (retrieval score may wobble < 1e-5).
 
         `source` is a raw string, a file path, or a folder path:
           - a `Path` or a `str` naming an existing path is a path; anything else is RAW TEXT;
@@ -329,7 +411,7 @@ class Lemmatizer:
         stream), `unknown` (out-of-bank transduced tokens worth annotating)."""
         is_path = isinstance(source, Path) or (isinstance(source, str) and os.path.exists(source))
         if not is_path:
-            return self._lemmatize_doc(str(source))
+            return self._lemmatize_doc(str(source), batch=batch)
         p = Path(source)
         if p.is_dir():
             globber = p.rglob if recursive else p.glob
@@ -338,10 +420,10 @@ class Lemmatizer:
             for i, f in enumerate(files, 1):
                 if verbose:
                     print(f"[shoshan] lemmatizing {i}/{len(files)}: {f}", flush=True)
-                doc = self._lemmatize_doc(f.read_text(encoding="utf-8"))
+                doc = self._lemmatize_doc(f.read_text(encoding="utf-8"), batch=batch)
                 doc["path"] = str(f)
                 out[str(f.relative_to(p))] = doc
             return dict(sorted(out.items()))
-        doc = self._lemmatize_doc(p.read_text(encoding="utf-8"))
+        doc = self._lemmatize_doc(p.read_text(encoding="utf-8"), batch=batch)
         doc["path"] = str(p)
         return doc

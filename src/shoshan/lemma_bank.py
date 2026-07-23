@@ -32,6 +32,7 @@ class LemmaBank:
         self.pos_by_lemma: Dict[str, Set[str]] = {k: set(v) for k, v in (pos_by_lemma or {}).items()}
         self.source_by_lemma: Dict[str, str] = dict(source_by_lemma or {})
         self.embeddings: Optional[np.ndarray] = None  # [n, dim], L2-normalized
+        self._cand_cache: Dict[str, Optional[np.ndarray]] = {}  # pos -> candidate ids
 
     def __len__(self) -> int:
         return len(self.lemmas)
@@ -42,14 +43,19 @@ class LemmaBank:
 
         Returns None (= search all) when no POS is given or POS info is absent.
         Lemmas with unknown POS are always kept (never filtered out wrongly).
+
+        Memoized per POS: there are ~15 UPOS values, so the O(n) scan runs at most once
+        per tag for a whole corpus — and returning a STABLE array per POS lets callers
+        cache a derived form (e.g. an on-device tensor) keyed on the array's identity.
         """
         if not pos or not self.pos_by_lemma:
             return None
-        ids = [i for i, lm in enumerate(self.lemmas)
-               if (lm not in self.pos_by_lemma) or (pos in self.pos_by_lemma[lm])]
-        if not ids or len(ids) == len(self.lemmas):
-            return None
-        return np.asarray(ids, dtype=np.int64)
+        if pos not in self._cand_cache:
+            ids = [i for i, lm in enumerate(self.lemmas)
+                   if (lm not in self.pos_by_lemma) or (pos in self.pos_by_lemma[lm])]
+            self._cand_cache[pos] = (None if (not ids or len(ids) == len(self.lemmas))
+                                     else np.asarray(ids, dtype=np.int64))
+        return self._cand_cache[pos]
 
     # ---- persistence -------------------------------------------------------
     def save(self, out_dir: str | Path) -> None:

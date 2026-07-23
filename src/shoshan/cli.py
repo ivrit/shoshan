@@ -19,6 +19,8 @@ def main(argv=None):
                     help="batch mode: IN has columns form,sentence[,pos]; OUT gets lemmas")
     ap.add_argument("--repo", default=None, help="Hugging Face weights repo (default: HebArabNlpProject/shoshan)")
     ap.add_argument("--device", default="auto")
+    ap.add_argument("--batch", type=int, default=256,
+                    help="distinct sentences per encoder forward pass (throughput lever)")
     ap.add_argument("--no-router", action="store_true",
                     help="disable the edit-script fallback (retrieve only)")
     ap.add_argument("--cov-thresh", type=float, default=0.60)
@@ -38,7 +40,7 @@ def main(argv=None):
         import pandas as pd
         src, dst = args.csv
         df = pd.read_csv(src).fillna("")
-        preds = lz.lemmatize(df.to_dict("records"))
+        preds = lz.lemmatize(df.to_dict("records"), batch=args.batch)
         pd.DataFrame(preds).to_csv(dst, index=False, encoding="utf-8")
         print(f"Wrote {len(preds)} rows to {dst}")
         if args.miss_log:
@@ -49,7 +51,7 @@ def main(argv=None):
     sentence = " ".join(args.text).strip()
     if not sentence:
         ap.error("give a sentence to lemmatize, or use --csv IN OUT")
-    rows = lz.annotate(sentence)
+    rows = lz.annotate(sentence, batch=args.batch)
     w = max((len(r["form"]) for r in rows), default=4)
     print(f"{'form'.ljust(w)}  {'lemma'.ljust(w)}  pos    source")
     for r in rows:
