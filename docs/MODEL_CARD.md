@@ -29,7 +29,12 @@ IAHLT Hebrew UD treebank, plus public Hebrew lexicons.
 | folder | what |
 |---|---|
 | `model/` | the fine-tuned encoder (DictaBERT backbone) + POS head + edit-script head and inventory |
-| `bank/`  | the pre-encoded lemma bank (`lemmas.csv` + `lemmas.npy`, ~118k lemmas) |
+| `bank/`  | the pre-encoded lemma bank (`lemmas.csv` + `lemmas.npy`, ~117.6k lemmas) |
+
+The bank is normalized to a single undotted, quote-folded form per lemma (so vowel-only
+variants can't produce arbitrary retrieval ties) and filtered to valid Hebrew lemmas.
+Inference encodes each sentence once and pools every token from it, so document lemmatization
+scales with the number of sentences, not tokens.
 
 ## Usage
 
