@@ -30,6 +30,7 @@ from .edit_script import apply_script, coverage
 from .suppletive import SuppletiveGate
 from .doc_text import split_sentences, tokenize as doc_tokenize
 from .hub import DEFAULT_REPO, download_weights
+from .runtime import configure
 
 _PKG_DATA = Path(__file__).parent / "data"
 
@@ -52,10 +53,13 @@ class Lemmatizer:
     """A loaded Shoshan model: encoder + lemma bank + coverage-gated router."""
 
     def __init__(self, model_dir: Union[str, Path], bank_dir: Union[str, Path],
-                 device: str = "cpu", use_router: bool = True,
+                 device: str = "auto", use_router: bool = True,
                  cov_thresh: float = 0.60, min_sim: float = 0.0,
                  use_pos_filter: bool = True, blank_function_words: bool = False,
-                 log_misses: bool = False, suppletives_path: Union[str, Path, None] = None):
+                 log_misses: bool = False, suppletives_path: Union[str, Path, None] = None,
+                 verbose: bool = True):
+        # auto-detect the machine (CUDA > MPS > CPU) and tune threads — no config needed
+        device, self.env = configure(device, verbose=verbose)
         self.enc = JointEncoder.load(model_dir, device=device)
         self.bank = LemmaBank.load(bank_dir)
         if self.bank.embeddings is None:
@@ -118,7 +122,19 @@ class Lemmatizer:
         return cls(root / "model", root / "bank", device=device, **kwargs)
 
     @staticmethod
-    def _span(form: str, sentence: str):
+    def _span(form: str, sentence: str, start=None):
+        """Locate the target form's char span in the sentence for span-pooling.
+
+        An explicit `start` char offset (when supplied and it actually lands on the
+        form) wins — this disambiguates a form that recurs in the sentence. Otherwise
+        fall back to find() (first match)."""
+        if start is not None and str(start) != "":
+            try:
+                st = int(start)
+            except (TypeError, ValueError):
+                st = -1
+            if 0 <= st <= len(sentence) - len(form) and sentence[st:st + len(form)] == form:
+                return st, st + len(form)
         st = sentence.find(form)
         return (st, st + len(form)) if st >= 0 else (0, len(form))
 
@@ -126,14 +142,16 @@ class Lemmatizer:
         """Lemmatize a list of dicts.
 
         Each item needs a ``form`` and (ideally) a ``sentence``; an optional
-        ``pos`` restricts retrieval to lemmas seen with that part of speech.
-        Each result adds ``lemma``, ``pos`` (predicted), ``score`` (retrieval
-        cosine), and ``source``: "retrieved" (from the bank), "suppletive" (a
-        curated suppletive-lexicon lookup, score 1.0), "acronym" (a known Hebrew
-        acronym, retrieval accepted without the coverage check), "bypass" (retrieval
-        accepted without the coverage check for PRON or high-frequency closed-class
-        forms), "transduced" (the edit-script fallback), or "function" (a
-        closed-class word blanked because ``blank_function_words`` is on).
+        ``pos`` restricts retrieval to lemmas seen with that part of speech, and an
+        optional ``start`` char offset of the form within the sentence disambiguates
+        a form that recurs more than once. Each result adds ``lemma``, ``pos``
+        (predicted), ``score`` (retrieval cosine), and ``source``: "retrieved" (from
+        the bank), "suppletive" (a curated suppletive-lexicon lookup, score 1.0),
+        "acronym" (a known Hebrew acronym, retrieval accepted without the coverage
+        check), "bypass" (retrieval accepted without the coverage check for PRON or
+        high-frequency closed-class forms), "transduced" (the edit-script fallback),
+        or "function" (a closed-class word blanked because ``blank_function_words``
+        is on).
         """
         from .text import normalize_text
         out: List[Dict] = []
@@ -143,7 +161,7 @@ class Lemmatizer:
             # variants -> ASCII); length-preserving, so spans stay valid.
             sents = [normalize_text(str(it.get("sentence") or it["form"])) for it in chunk]
             forms = [normalize_text(str(it["form"])) for it in chunk]
-            spans = [self._span(f, s) for f, s in zip(forms, sents)]
+            spans = [self._span(f, s, it.get("start")) for f, s, it in zip(forms, sents, chunk)]
             with torch.no_grad():
                 q, pos_logits, edit_logits = self.enc.encode_query(sents, spans)
             q = q.cpu().numpy()
@@ -258,9 +276,15 @@ class Lemmatizer:
         from .text import collapse_gender_slash
         toks = [t for t in doc_tokenize(text) if _HAS_WORDCHAR.search(t.text)]
         sents = {s.id: s for s in split_sentences(text)}
-        items = [{"form": collapse_gender_slash(t.text),
-                  "sentence": (sents[t.sent_id].text if t.sent_id in sents else t.text)}
-                 for t in toks]
+        items = []
+        for t in toks:
+            s = sents.get(t.sent_id)
+            sent_text = s.text if s is not None else t.text
+            # offset of the form within its sentence, so a repeated word is pooled at
+            # the right occurrence; a missing sentence falls back to find() (start omitted).
+            start = (t.start - s.start) if s is not None else None
+            items.append({"form": collapse_gender_slash(t.text), "sentence": sent_text,
+                          "start": start})
         preds = self.lemmatize(items) if items else []
 
         tokens, es_tokens = [], []

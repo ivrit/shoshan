@@ -18,7 +18,7 @@ def main(argv=None):
     ap.add_argument("--csv", nargs=2, metavar=("IN", "OUT"),
                     help="batch mode: IN has columns form,sentence[,pos]; OUT gets lemmas")
     ap.add_argument("--repo", default=None, help="Hugging Face weights repo (default: HebArabNlpProject/shoshan)")
-    ap.add_argument("--device", default="cpu")
+    ap.add_argument("--device", default="auto")
     ap.add_argument("--no-router", action="store_true",
                     help="disable the edit-script fallback (retrieve only)")
     ap.add_argument("--cov-thresh", type=float, default=0.60)
