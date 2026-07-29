@@ -3,4 +3,10 @@ transformers
 numpy
 pandas
 huggingface_hub
-git+https://github.com/ivrit/shoshan.git@37fafead59aa8e7c43ca24ae10e77b3f6af4c005
+# Pinned to a release TAG, not a commit SHA, on purpose. This repo's history has been
+# rewritten more than once (see "repin after history purge" / "prior pin invalidated by
+# history rewrite" in the log), and each rewrite orphans a SHA pin — the old commit then
+# survives only as an unreachable object GitHub happens to retain. A tag is a named ref
+# that is recreated by the rewrite, so it keeps resolving. Bump this on each release and
+# redeploy the Space.
+git+https://github.com/ivrit/shoshan.git@v0.3.1

@@ -1,7 +1,7 @@
 import html as H
 import gradio as gr
 from shoshan import Lemmatizer
-from shoshan.text import tokenize
+from shoshan.text import collapse_gender_slash
 
 DEFAULT = "הוא ניסה למצוא את המפתחות האבודים מתחת למושב הנהג."
 BLUE, ORANGE = "#2f6f9f", "#b5651d"
@@ -49,7 +49,14 @@ def _table(sh_rows, d_map):
         form = r["form"]
         sh_color = BLUE if r["source"] == "retrieved" else ORANGE
         sh = H.escape(r["lemma"]) if r["lemma"] else "—"
-        d = d_map.get(form) if d_map is not None else None
+        # Shoshan reports a gender-slash form whole (כותב/ת); DictaBERT-lex splits it into
+        # כותב + / + ת, so its map is keyed by the base. Fall back to the base, otherwise
+        # the comparison column shows a false "—" as if DictaBERT had produced nothing.
+        d = None
+        if d_map is not None:
+            d = d_map.get(form)
+            if d is None:
+                d = d_map.get(collapse_gender_slash(form))
         d_cell = (f"<b style='color:{ORANGE}'>{H.escape(d)}</b>" if d
                   else "<span style='color:#bbb'>—</span>")
         trs.append(
