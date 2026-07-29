@@ -327,10 +327,19 @@ class Lemmatizer:
         return self.lemmatize([{"form": form, "sentence": sentence or form}])[0]["lemma"]
 
     def annotate(self, sentence: str, batch: int = 256) -> List[Dict]:
-        """Tokenize `sentence` and lemmatize every word token in context."""
-        from .text import tokenize, normalize_text
+        """Tokenize `sentence` and lemmatize every word token in context.
+
+        Tokenizes with the document tokenizer (`doc_text`), so every item carries its
+        ABSOLUTE char offset as `start`. A form that RECURS in the sentence is then
+        span-pooled at its own occurrence; without an offset `_span` falls back to
+        find() and pools every occurrence at the first one, which reads the later
+        ones in the wrong context (שם "put" vs. שם "there"). This is also the
+        tokenizer `lemmatize_text` uses, so the two paths report the same surfaces."""
+        from .text import normalize_text
+        # length-preserving (NFC + 1:1 quote fold), so offsets below stay valid
         sentence = normalize_text(sentence)   # so quote variants don't split acronyms
-        items = [{"form": f, "sentence": sentence} for f in tokenize(sentence)]
+        toks = [t for t in doc_tokenize(sentence) if _HAS_WORDCHAR.search(t.text)]
+        items = [{"form": t.text, "sentence": sentence, "start": t.start} for t in toks]
         return self.lemmatize(items, batch=batch)
 
     # ---- document API: lemmatize_text (string / file / folder -> doc dict) ----
