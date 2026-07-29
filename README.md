@@ -247,8 +247,9 @@ lily.
 
 ## License and credit
 
-Code is MIT (`LICENSE`). The encoder is fine-tuned from
-[DictaBERT](https://huggingface.co/dicta-il/dictabert). The data comes from the
+Code is MIT (`LICENSE`). The weights and data carry their own terms, recorded in
+`NOTICE`: the encoder is fine-tuned from
+[DictaBERT](https://huggingface.co/dicta-il/dictabert), and the data comes from the
 IAHLT Hebrew UD treebank and public Hebrew lexicons; see `docs/DATA_STATEMENT.md`.
 We thank **Avner Algom** and the **IAHLT** for the treebank data and for
 permission to release the out-of-domain evaluation sentences.

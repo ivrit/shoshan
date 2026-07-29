@@ -19,11 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
----
-
-The model weights are fine-tuned from DictaBERT (dicta-il/dictabert) and are
-subject to that model's license. The training and evaluation data are derived
-from the IAHLT Hebrew Universal Dependencies treebank (Knesset and Wikipedia
-portions) and public Hebrew lexicons; see docs/DATA_STATEMENT.md for provenance
-and terms.

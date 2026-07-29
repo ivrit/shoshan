@@ -1,0 +1,27 @@
+Shoshan — third-party provenance notice
+=======================================
+
+The MIT license in LICENSE covers the CODE in this repository. It does not, and
+cannot, relicense the model weights or the data they were derived from. Those
+carry their own terms, recorded here.
+
+Model weights
+-------------
+The encoder is fine-tuned from DictaBERT (dicta-il/dictabert) and remains subject
+to that model's license.
+
+  https://huggingface.co/dicta-il/dictabert
+
+Training and evaluation data
+----------------------------
+Derived from the IAHLT Hebrew Universal Dependencies treebank (Knesset and
+Wikipedia portions) and from public Hebrew lexicons. The bundled acronym list is
+from Wiktionary (CC BY-SA).
+
+Full provenance and terms: docs/DATA_STATEMENT.md
+Dataset card:              docs/DATASET_CARD.md
+
+Acknowledgements
+----------------
+We thank Avner Algom and the IAHLT for the treebank data, and for permission to
+release the out-of-domain evaluation sentences.
