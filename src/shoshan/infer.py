@@ -335,12 +335,20 @@ class Lemmatizer:
         find() and pools every occurrence at the first one, which reads the later
         ones in the wrong context (שם "put" vs. שם "there"). This is also the
         tokenizer `lemmatize_text` uses, so the two paths report the same surfaces."""
-        from .text import normalize_text
+        from .text import normalize_text, collapse_gender_slash
         # length-preserving (NFC + 1:1 quote fold), so offsets below stay valid
         sentence = normalize_text(sentence)   # so quote variants don't split acronyms
         toks = [t for t in doc_tokenize(sentence) if _HAS_WORDCHAR.search(t.text)]
-        items = [{"form": t.text, "sentence": sentence, "start": t.start} for t in toks]
-        return self.lemmatize(items, batch=batch)
+        # Feed the model the COLLAPSED base (כותב), exactly as _lemmatize_doc does: the
+        # bank is keyed on real lemmas, and an inclusive-writing form like כותב/ת is not
+        # one — retrieving on it lands on junk. The full surface is restored below for
+        # reporting, so the caller still sees the token as it appears in the text.
+        items = [{"form": collapse_gender_slash(t.text), "sentence": sentence,
+                  "start": t.start} for t in toks]
+        rows = self.lemmatize(items, batch=batch)
+        for t, r in zip(toks, rows):
+            r["form"] = t.text
+        return rows
 
     # ---- document API: lemmatize_text (string / file / folder -> doc dict) ----
     _LEMMA_NOISE = str.maketrans("", "", "־- \t")

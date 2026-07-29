@@ -48,10 +48,28 @@ def test_recurring_form_is_disambiguated(lz):
     assert first["start"] != second["start"]
 
 
+GENDER_SLASH = "כל כותב/ת מוזמן/ת להגיש חבר/ה לוועדה"
+
+
 def test_annotate_matches_lemmatize_text_surfaces(lz):
     """annotate() and the document path tokenize identically (same forms, same order)."""
-    sent = "כל כותב/ת מוזמן/ת להגיש חבר/ה לוועדה"
-    a = [r["form"] for r in lz.annotate(sent)]
-    doc = lz.lemmatize_text(sent)
+    a = [r["form"] for r in lz.annotate(GENDER_SLASH)]
+    doc = lz.lemmatize_text(GENDER_SLASH)
     b = [t["token"] for t in doc["tokens"]]
     assert a == b, f"annotate={a} != lemmatize_text={b}"
+
+
+def test_gender_slash_is_retrieved_on_its_collapsed_base(lz):
+    """Inclusive-writing forms must be looked up as their base, not the raw surface.
+
+    The bank is keyed on real lemmas; כותב/ת is not one, so retrieving on the raw
+    surface lands on junk (v0.3.0 returned ות""ת for it). annotate() must collapse the
+    form for the model the way _lemmatize_doc does, while still REPORTING the surface.
+    """
+    rows = lz.annotate(GENDER_SLASH)
+    by = {r["form"]: r["lemma"] for r in rows}
+    assert by["כותב/ת"] == "כותב", f'כותב/ת -> {by["כותב/ת"]!r}, expected כותב'
+    assert by["חבר/ה"] == "חבר", f'חבר/ה -> {by["חבר/ה"]!r}, expected חבר'
+    # and the two paths must agree on the lemma, not just the surface
+    doc = lz.lemmatize_text(GENDER_SLASH)
+    assert [r["lemma"] for r in rows] == [t["lemma"] for t in doc["tokens"]]
