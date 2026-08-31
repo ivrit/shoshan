@@ -29,6 +29,7 @@ from .lemma_bank import LemmaBank
 from .edit_script import apply_script, coverage
 from .suppletive import SuppletiveGate
 from .doc_text import split_sentences, tokenize as doc_tokenize
+from .normalize import HEB_PRESENTATION
 from .hub import DEFAULT_REPO, download_weights
 from .runtime import configure
 
@@ -40,8 +41,10 @@ _PKG_DATA = Path(__file__).parent / "data"
 FUNCTION_POS = {"ADP", "AUX", "CCONJ", "SCONJ", "DET", "PRON", "PART", "INTJ"}
 
 # Word tokens (letters/digits) are lemmatized + indexed; standalone punctuation is not.
-_HAS_WORDCHAR = re.compile(r"[0-9A-Za-z֐-׿]")
-_HEB_LETTER = re.compile(r"[֐-׿]")
+# The Hebrew range includes the presentation forms (normalize.HEB_PRESENTATION): tokens
+# come from the ORIGINAL text, which has not been folded yet, so a word made of them must
+# still count as a word rather than be dropped as punctuation.
+_HAS_WORDCHAR = re.compile(r"[0-9A-Za-z֐-׿" + HEB_PRESENTATION + r"]")
 
 
 def _is_valid_lemma(s: str) -> bool:

@@ -10,6 +10,8 @@ normalize (that is the caller's concern in T4; normalizing here would desync off
 import re
 from dataclasses import dataclass
 
+from .normalize import _DQUOTES, _SQUOTES, HEB_PRESENTATION
+
 # --- vendored verbatim from parsan/parsan/text.py (regexes + their comments) ---------
 # A number keeps internal decimal points / thousands separators together (3.14, 60,000,
 # 1,000.50 -> one token, matching IAHLT gold). The separator must be FOLLOWED by a digit,
@@ -19,7 +21,20 @@ _NUM = r"\d+(?:[.,]\d+)+"
 # (so acronyms, abbreviations, dates (12/2020), and fractions are ONE token). Slash is
 # included in the repeating group so any word/digit runs joined by "/" stay together —
 # this matches text.py's tokenizer and keeps annotate() and lemmatize_text() consistent.
-_WORD = r"""[A-Za-z֐-׿0-9]+(?:["'׳״/][A-Za-z֐-׿0-9]+)*"""
+#
+# The mark class is taken from normalize.py rather than spelled out here, so it covers
+# EVERY glyph the quote fold treats as an acronym mark — the smart quotes, guillemets and
+# primes as well as the gershayim and the ASCII pair. It has to: annotate() used to
+# normalize the sentence BEFORE tokenizing it, which turned a curly quote into an ASCII
+# one and kept צה”ל whole. Tokenizing the ORIGINAL text (so offsets index the caller's
+# string) means the tokenizer must recognize those glyphs itself, or the acronym
+# shatters into three tokens. Hardcoding the list here would let the two drift apart,
+# which is the failure this whole change is about.
+# The letter class spans the main Hebrew block AND the presentation forms — see
+# normalize.HEB_PRESENTATION for why leaving the latter out silently splits words.
+_MARKS = re.escape(_DQUOTES + _SQUOTES)
+_LETTER = "A-Za-z֐-׿" + HEB_PRESENTATION + "0-9"
+_WORD = r"[" + _LETTER + r"]+(?:[" + _MARKS + r"/][" + _LETTER + r"]+)*"
 # numbers first (greedy) so 3.14 isn't pre-empted by the bare-digit branch of _WORD.
 _TOKEN_RE = re.compile(_NUM + r"|" + _WORD + r"|[^\s]", re.UNICODE)
 # split after sentence-final punctuation followed by space (3.14 is safe: no space after dot).

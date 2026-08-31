@@ -32,6 +32,15 @@ _SQUOTES = "".join(chr(c) for c in (0x05F3, 0x0027, 0x2018, 0x2019, 0x201A, 0x20
 _QUOTE_MAP = {ord(c): chr(0x22) for c in _DQUOTES}        # -> ASCII "
 _QUOTE_MAP.update({ord(c): chr(0x27) for c in _SQUOTES})  # -> ASCII '
 
+# Hebrew presentation forms U+FB1D-U+FB4F: single codepoints for letters that ALREADY
+# carry a point (U+FB2E alef-with-patah) or are ligatures. NFC decomposes them into the
+# main Hebrew block, so NORMALIZED text never contains them — but raw input does, and
+# text extracted from PDFs is full of them. Any character class meaning "a Hebrew letter"
+# must include this range: the main block U+0590-U+05FF does NOT cover it, so a tokenizer
+# built only on U+0590-U+05FF splits a word apart at its presentation forms, before
+# normalization ever gets the chance to fold them.
+HEB_PRESENTATION = "\uFB1D-\uFB4F"
+
 # Hebrew points (niqqud) + cantillation: U+0591..U+05C7
 _NIQQUD_RE = re.compile("[" + "".join(chr(c) for c in range(0x0591, 0x05C8)) + "]")
 _HEB_LETTER_RE = re.compile(r"[א-ת]")
