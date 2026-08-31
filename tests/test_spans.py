@@ -20,7 +20,7 @@ LDQUO = "“"          # “ LEFT DOUBLE QUOTATION MARK
 RDQUO = "”"          # ” RIGHT DOUBLE QUOTATION MARK
 LSQUO = "‘"          # ‘ LEFT SINGLE QUOTATION MARK
 RSQUO = "’"          # ’ RIGHT SINGLE QUOTATION MARK
-ALEF_PATAH = "אַ"     # HEBREW LETTER ALEF WITH PATAH — a presentation form.
+ALEF_PATAH = "\uFB2E"  # HEBREW LETTER ALEF WITH PATAH — a presentation form.
 #                           It is a composition EXCLUSION, so NFC DECOMPOSES it to
 #                           U+05D0 (alef) + U+05B7 (patah): 1 char in, 2 chars out.
 COMB_ACUTE = "́"     # ́ COMBINING ACUTE ACCENT — "e" + this is NFD; NFC
