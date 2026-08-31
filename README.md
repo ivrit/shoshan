@@ -93,7 +93,9 @@ The doc dict has five keys:
 
 **Character offsets round-trip.** Every token carries absolute offsets into
 `text`, so `text[start:end] == token` — slice the original to highlight a hit
-without re-tokenizing.
+without re-tokenizing. The same holds for `annotate(sentence)`: each row's
+`start` indexes the sentence you passed in, so
+`sentence[start:start + len(form)] == form`.
 
 **Ready for Elasticsearch.** Each `es_tokens` entry is a lemma with its source
 span and position — `{token, start_offset, end_offset, position, type}` — the

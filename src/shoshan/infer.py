@@ -15,6 +15,7 @@ used at training time.
 """
 
 from __future__ import annotations
+import logging
 import os
 import re
 from pathlib import Path
@@ -29,11 +30,18 @@ from .lemma_bank import LemmaBank
 from .edit_script import apply_script, coverage
 from .suppletive import SuppletiveGate
 from .doc_text import split_sentences, tokenize as doc_tokenize
+from .text import normalize_with_offset_map
 from .normalize import HEB_PRESENTATION
 from .hub import DEFAULT_REPO, download_weights
 from .runtime import configure
 
 _PKG_DATA = Path(__file__).parent / "data"
+
+# Library code must not print to stdout, so problems that are worth surfacing but not
+# worth raising go through the standard logging machinery. Silent unless the embedding
+# application configures logging, which is the point: an offset that has quietly gone
+# stale should leave a trace somewhere rather than nowhere.
+_LOG = logging.getLogger("shoshan")
 
 # Closed-class parts of speech. For information retrieval these are stopwords, and
 # they are also where the edit-script fallback is least reliable (it has no real
@@ -45,11 +53,50 @@ FUNCTION_POS = {"ADP", "AUX", "CCONJ", "SCONJ", "DET", "PRON", "PART", "INTJ"}
 # come from the ORIGINAL text, which has not been folded yet, so a word made of them must
 # still count as a word rather than be dropped as punctuation.
 _HAS_WORDCHAR = re.compile(r"[0-9A-Za-z֐-׿" + HEB_PRESENTATION + r"]")
+_HEB_LETTER = re.compile(r"[֐-׿" + HEB_PRESENTATION + r"]")
 
 
 def _is_valid_lemma(s: str) -> bool:
     """A real word lemma: >=2 chars, has a Hebrew letter, no digit."""
     return len(s) >= 2 and bool(_HEB_LETTER.search(s)) and not any(c.isdigit() for c in s)
+
+
+def _resolve_span(form: str, raw_sentence: str, start, cache: Dict[str, tuple]):
+    """Normalize one item's sentence and locate `form` in it -> (normalized, span).
+
+    This is the whole of the offset contract in one place. `start`, when the caller
+    supplies one, is an offset into `raw_sentence` AS GIVEN — that is where every
+    caller computes it (`_lemmatize_doc` from the document tokenizer, `annotate` from
+    the sentence tokenizer, the CSV path from a `start` column). `normalize_text` is
+    not length-preserving, so that offset is not usable against the normalized
+    sentence until it is mapped, and mapping it is exactly what this function adds.
+
+    An unmappable `start` (not an integer, out of range, or pointing inside a
+    base+marks cluster NFC rewrote) WARNS and falls back to find(). It never silently
+    pools at the sentence start.
+
+    `cache` is a caller-owned dict keyed by the raw sentence. A document sends one
+    item per token, each repeating its sentence, so without it the chunk-wise walk
+    would run once per token instead of once per distinct sentence.
+    """
+    got = cache.get(raw_sentence)
+    if got is None:
+        got = cache[raw_sentence] = normalize_with_offset_map(raw_sentence)
+    sentence, offsets = got
+    if start is None or str(start) == "":
+        return sentence, Lemmatizer._span(form, sentence)
+    try:
+        raw_start = int(start)
+    except (TypeError, ValueError):
+        _LOG.warning("start=%r is not an integer offset; falling back to find() for form %r",
+                     start, form)
+        return sentence, Lemmatizer._span(form, sentence)
+    mapped = offsets.get(raw_start)
+    if mapped is None:
+        _LOG.warning("start=%r is not a character boundary of the sentence (normalization "
+                     "moved it); falling back to find() for form %r", start, form)
+        return sentence, Lemmatizer._span(form, sentence)
+    return sentence, Lemmatizer._span(form, sentence, mapped)
 
 
 class Lemmatizer:
@@ -137,8 +184,16 @@ class Lemmatizer:
         """Locate the target form's char span in the sentence for span-pooling.
 
         An explicit `start` char offset (when supplied and it actually lands on the
-        form) wins — this disambiguates a form that recurs in the sentence. Otherwise
-        fall back to find() (first match)."""
+        form) wins — this disambiguates a form that recurs in the sentence. `start` is
+        an index into `sentence` AS PASSED, i.e. into the NORMALIZED sentence; because
+        `normalize_text` is not length-preserving, an offset computed on the raw text
+        must be mapped before it gets here. `_resolve_span` is what does that, and
+        callers should go through it rather than calling this directly with a raw
+        offset. Otherwise fall back to find() (first match).
+
+        A missing form, or an explicit offset that does not land on it, is WARNED. It
+        used to be silent, which is how an offset that had quietly gone stale could
+        mis-pool every token of a document with no signal at all."""
         if start is not None and str(start) != "":
             try:
                 st = int(start)
@@ -146,8 +201,12 @@ class Lemmatizer:
                 st = -1
             if 0 <= st <= len(sentence) - len(form) and sentence[st:st + len(form)] == form:
                 return st, st + len(form)
+            _LOG.warning("start=%r does not land on form %r; falling back to find()", start, form)
         st = sentence.find(form)
-        return (st, st + len(form)) if st >= 0 else (0, len(form))
+        if st < 0:
+            _LOG.warning("form %r not found in sentence; pooling sentence start", form)
+            return 0, len(form)
+        return st, st + len(form)
 
     def _cand_tensor(self, cand: np.ndarray) -> "torch.Tensor":
         """Device tensor for a POS candidate-id array, cached by the array's identity
@@ -206,11 +265,20 @@ class Lemmatizer:
         from .text import normalize_text
         if not items:
             return []
-        # Normalize forms + sentences the same way training forms are (quote/prime variants
-        # -> ASCII); length-preserving, so spans stay valid. Done for ALL items up front.
+        # Normalize forms + sentences the same way training forms are (quote/prime
+        # variants -> ASCII). Done for ALL items up front.
+        # That normalization is NOT length-preserving (NFC moves offsets even though the
+        # quote fold is 1:1), so each item's `start` — computed by its caller on the RAW
+        # sentence — is mapped into normalized coordinates by _resolve_span rather than
+        # used as-is. `norm_cache` keeps that to one walk per DISTINCT sentence.
         forms = [normalize_text(str(it["form"])) for it in items]
-        sents = [normalize_text(str(it.get("sentence") or it["form"])) for it in items]
-        spans = [self._span(f, s, it.get("start")) for f, s, it in zip(forms, sents, items)]
+        norm_cache: Dict[str, tuple] = {}
+        sents, spans = [], []
+        for f, it in zip(forms, items):
+            s, span = _resolve_span(f, str(it.get("sentence") or it["form"]), it.get("start"),
+                                    norm_cache)
+            sents.append(s)
+            spans.append(span)
 
         # --- encode-once ---------------------------------------------------------------
         # A document sends one item PER TOKEN, each repeating its full sentence. Encoding
@@ -337,10 +405,18 @@ class Lemmatizer:
         span-pooled at its own occurrence; without an offset `_span` falls back to
         find() and pools every occurrence at the first one, which reads the later
         ones in the wrong context (שם "put" vs. שם "there"). This is also the
-        tokenizer `lemmatize_text` uses, so the two paths report the same surfaces."""
-        from .text import normalize_text, collapse_gender_slash
-        # length-preserving (NFC + 1:1 quote fold), so offsets below stay valid
-        sentence = normalize_text(sentence)   # so quote variants don't split acronyms
+        tokenizer `lemmatize_text` uses, so the two paths report the same surfaces.
+
+        Each row's `start` indexes the sentence YOU passed in, so
+        `sentence[r["start"]:r["start"] + len(r["form"])] == r["form"]` holds and you
+        can slice your own string with it. Tokenization therefore runs on the ORIGINAL
+        sentence; `lemmatize` normalizes internally and maps the offset itself.
+
+        Previously these offsets indexed an internal NORMALIZED copy of the sentence
+        instead. Wherever normalization changed the length — a Hebrew presentation form
+        such as U+FB2E, common in PDF-extracted text, or NFD input — they silently
+        pointed at the wrong characters of the caller's string."""
+        from .text import collapse_gender_slash
         toks = [t for t in doc_tokenize(sentence) if _HAS_WORDCHAR.search(t.text)]
         # Feed the model the COLLAPSED base (כותב), exactly as _lemmatize_doc does: the
         # bank is keyed on real lemmas, and an inclusive-writing form like כותב/ת is not

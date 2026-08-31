@@ -4,12 +4,18 @@
 
 Two concerns, kept separate:
 
-1. ``normalize_text`` — length-preserving canonicalization of the punctuation that varies
-   in real Hebrew text: gershayim (U+05F4 ״), ASCII double-quote, smart/low/high double
-   quotes, guillemets « » and double prime all mean the same acronym mark → ASCII ";
-   geresh (U+05F3 ׳), ASCII apostrophe, smart single-quotes and prime → ASCII '. NFC first.
-   **Niqqud and letters are untouched and length is preserved** (inference locates the
-   target form by character offsets, so the mapping must be 1 codepoint → 1 codepoint).
+1. ``normalize_text`` — canonicalization of the punctuation that varies in real Hebrew
+   text: gershayim (U+05F4 ״), ASCII double-quote, smart/low/high double quotes,
+   guillemets « » and double prime all mean the same acronym mark → ASCII "; geresh
+   (U+05F3 ׳), ASCII apostrophe, smart single-quotes and prime → ASCII '. NFC first.
+   Niqqud and letters are untouched.
+
+   **It is NOT length-preserving.** The quote fold alone is strictly 1 codepoint → 1
+   codepoint, but the NFC pass in front of it is not, so an index into the result is not
+   an index into the input. Inference locates the target form by character offset, so
+   anything holding an offset must map it — ``text.find_token_spans`` and
+   ``text.normalize_with_offset_map`` do that; see them before comparing offsets across
+   the two.
 
 2. ``normalize_lemma`` — the canonical BANK-KEY form of a lemma: NFC + niqqud stripped +
    quotes folded. DictaBERT's tokenizer strips combining marks, so ``אֶל``/``אַל``/``אל``
@@ -47,18 +53,35 @@ _HEB_LETTER_RE = re.compile(r"[א-ת]")
 
 
 def normalize_quotes(s: str) -> str:
-    """Fold gershayim/geresh/smart-quotes/guillemets to ASCII " and '. Length-preserving."""
+    """Fold gershayim/geresh/smart-quotes/guillemets to ASCII " and '. Length-preserving.
+
+    This function alone is 1:1 (every mapped codepoint -> exactly one ASCII char).
+    ``normalize_text`` is NOT, because of the NFC pass it adds -- see there.
+    """
     return str(s).translate(_QUOTE_MAP)
 
 
 def nfc(s: str) -> str:
-    """Unicode NFC (Hebrew letters + niqqud are unaffected in length)."""
+    """Unicode NFC. NOT length-preserving, and Hebrew is exactly where it bites: the
+    presentation forms U+FB1D-U+FB4F are single codepoints for a letter that ALREADY
+    carries a point, and NFC decomposes them (U+FB2E alef-with-patah -> U+05D0 + U+05B7,
+    1 char in, 2 out). They are common in PDF-extracted text. NFD input composes the
+    other way. A plain unpointed Hebrew letter is indeed unaffected -- which is why text
+    that was NFC-normalized upstream hides this entirely, and why a clean corpus proves
+    nothing about it."""
     return unicodedata.normalize("NFC", str(s or ""))
 
 
 def normalize_text(s: str) -> str:
-    """THE single query/surface normalizer: NFC + the full quote fold. Length-preserving,
-    niqqud kept (the encoder strips it anyway; keeping it preserves the surface output)."""
+    """THE single query/surface normalizer: NFC + the full quote fold. Niqqud kept (the
+    encoder strips it anyway; keeping it preserves the surface output).
+
+    NOT length-preserving, despite the quote fold itself being 1:1: the NFC pass changes
+    length in both directions (U+FB2E DECOMPOSES to two chars; an NFD "e"+U+0301
+    COMPOSES to one). An index into the normalized string is therefore NOT an index into
+    the original, and slicing the source with one silently returns the wrong characters.
+    Callers needing offsets must map them: ``text.find_token_spans`` goes normalized ->
+    original, ``text.normalize_with_offset_map`` goes original -> normalized."""
     return normalize_quotes(nfc(s))
 
 
