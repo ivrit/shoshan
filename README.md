@@ -108,6 +108,13 @@ index and search by lemma while highlighting the original surface text.
 - `transduced` — produced by the edit-script fallback (out-of-vocabulary words),
 - `suppletive` — a curated look-up for irregular / closed-class forms whose
   lemma shares too few letters to retrieve (e.g. *היא* → *הוא*),
+
+  > **Lemma convention for pronouns.** Following the MILA canonical-lemma
+  > convention, **every personal pronoun lemmatizes to הוא** — not only
+  > *היא*, *הם* and *הן*, but also *אני*, *אתה* and *אנחנו*. This is
+  > deliberate, not a bug: the pronoun paradigm is treated as one lexeme with
+  > הוא as its citation form. If you need person or number, read them from
+  > the surface form or from `pos`, not from the lemma.
 - `function` — only with `blank_function_words=True`: closed-class stopwords
   come back with an empty lemma and are kept in `tokens` (for provenance) but
   dropped from `es_tokens` and `analyzed_text`.
@@ -155,7 +162,7 @@ word-forms most worth annotating or adding to the lexicon, commonest first.
 ```python
 lz = Lemmatizer.from_pretrained(log_misses=True)
 lz.lemmatize(corpus_rows)               # run over your text
-lz.write_miss_log("to_curate.csv")      # wordform, pos, count, lemma, coverage, reason
+lz.write_miss_log("to_curate.csv")      # see the columns below
 ```
 
 or from the command line:
@@ -163,6 +170,19 @@ or from the command line:
 ```bash
 shoshan --csv corpus.csv out.csv --miss-log to_curate.csv
 ```
+
+The worklist has eight columns, one row per (wordform, predicted POS) pair:
+
+| column | what it holds |
+|---|---|
+| `wordform` | the surface form, as it appeared in your text |
+| `predicted_pos` | the POS the model assigned it |
+| `count` | how often the pair occurred; the file is sorted by this, commonest first |
+| `predicted_lemma` | the lemma the system finally returned |
+| `retrieved_lemma` | the bank's best candidate, which the coverage gate distrusted |
+| `mean_coverage` | mean coverage-gate score over the occurrences |
+| `mean_sim` | mean retrieval similarity over the occurrences |
+| `reason` | why it was flagged (the commonest reason, when they differ) |
 
 Since extending the system is just adding lemmas to the bank and re-encoding (no
 retraining), this closes the loop: the model surfaces its own gaps, you curate the
