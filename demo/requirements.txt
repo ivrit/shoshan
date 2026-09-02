@@ -9,4 +9,4 @@ huggingface_hub
 # survives only as an unreachable object GitHub happens to retain. A tag is a named ref
 # that is recreated by the rewrite, so it keeps resolving. Bump this on each release and
 # redeploy the Space.
-git+https://github.com/ivrit/shoshan.git@v0.3.1
+git+https://github.com/ivrit/shoshan.git@v0.4.0

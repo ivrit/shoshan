@@ -2,7 +2,13 @@
 
 All notable changes to `shoshan` are recorded here.
 
-## Unreleased
+## 0.4.0 — 2026-09-02
+
+A minor version, not a patch: `annotate()`'s character offsets change value on input that
+is not already NFC-normalized. They were documented to index the string you passed in and
+did not; they now do. If you slice your own text with them, you were getting the wrong
+characters on such input and will now get the right ones — no code change needed, but the
+values differ. Everything else below is a fix with no contract change.
 
 ### Fixed
 
