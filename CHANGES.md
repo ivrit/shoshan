@@ -34,6 +34,30 @@ All notable changes to `shoshan` are recorded here.
   splitting them into three tokens. It previously relied on the caller having folded the
   quotes first.
 
+- **Words written with Hebrew presentation forms are lemmatized correctly.** These are
+  single codepoints for a letter that already carries its point (U+FB2E), is a width
+  variant (U+FB21), or is a ligature (U+FB4F), and text extracted from PDFs is full of
+  them. Two things went wrong and both are fixed:
+
+  The tokenizer did not recognize them as letters, so it split the word around one and
+  then dropped the orphan as punctuation — `אנשים` ("people") with its alef written as
+  U+FB2E became `נשים` ("women") before the model saw anything.
+
+  Normalization only folded the forms NFC decomposes, which leaves the width variants and
+  the ligature untouched by definition. Those reached the encoder as codepoints its
+  tokenizer has never seen. Measured over 400 gold rows corrupted the way PDF extraction
+  corrupts Hebrew, lemma accuracy against the same rows uncorrupted (0.95):
+
+  | corruption | before | after |
+  |---|---|---|
+  | U+FB4F alef-lamed ligature | 0.0025 | 0.9475 |
+  | U+FB21 wide alef | 0.0050 | 0.9500 |
+  | U+FB2E alef with patah | 0.9400 | 0.9400 |
+
+  Predictions on corrupted text are now identical to predictions on the clean spelling.
+  Surface text you get back is unchanged: the fold applies to the query, and `tokens`
+  still carries your own characters at your own offsets.
+
 - **Failures are no longer silent.** A form that cannot be located in its sentence, or an
   explicit offset that does not land on it, now emits a `logging` warning on the `shoshan`
   logger. Both conditions previously passed unreported.
