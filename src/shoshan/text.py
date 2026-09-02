@@ -20,7 +20,8 @@ it does handle:
 import re
 import unicodedata
 
-from .normalize import normalize_text, HEB_PRESENTATION  # noqa: F401  (re-exported)
+from .normalize import (normalize_text, COMBINING_MARKS, HEB_PRESENTATION,  # noqa: F401
+                        LATIN_ACCENTED)                                    # (re-exported)
 
 # Hebrew letters incl. final forms (U+05D0–U+05EA), used by the gender-slash rule.
 _HEB = "א-ת"
@@ -35,7 +36,8 @@ _GENDER_SLASH = re.compile(rf"([{_HEB}]{{2,}})/(?:{_GENDER_ENDINGS})(?![{_HEB}])
 # (so 12/2020 and א/ב survive as one token after the gender-slash pass above). The Hebrew
 # range covers the presentation forms too (see normalize.HEB_PRESENTATION) — this
 # tokenizer also runs on un-normalized input.
-_WORD = re.compile(r"[A-Za-z֐-׿" + HEB_PRESENTATION + r"0-9'\"׳״/\-]+")
+_WORD = re.compile(r"[A-Za-z" + LATIN_ACCENTED + r"֐-׿" + HEB_PRESENTATION
+                   + COMBINING_MARKS + r"0-9'\"׳״/\-]+")
 
 def collapse_gender_slash(s: str) -> str:
     """Collapse inclusive-writing gender-slash forms to their base (``כותב/ת`` → ``כותב``).

@@ -10,7 +10,8 @@ normalize (that is the caller's concern in T4; normalizing here would desync off
 import re
 from dataclasses import dataclass
 
-from .normalize import _DQUOTES, _SQUOTES, HEB_PRESENTATION
+from .normalize import (_DQUOTES, _SQUOTES, COMBINING_MARKS, HEB_PRESENTATION,
+                        LATIN_ACCENTED)
 
 # --- vendored verbatim from parsan/parsan/text.py (regexes + their comments) ---------
 # A number keeps internal decimal points / thousands separators together (3.14, 60,000,
@@ -31,9 +32,10 @@ _NUM = r"\d+(?:[.,]\d+)+"
 # shatters into three tokens. Hardcoding the list here would let the two drift apart,
 # which is the failure this whole change is about.
 # The letter class spans the main Hebrew block AND the presentation forms — see
-# normalize.HEB_PRESENTATION for why leaving the latter out silently splits words.
+# normalize.HEB_PRESENTATION for why leaving the latter out silently splits words — AND
+# the combining marks, which NFD input puts after a Latin letter (normalize.COMBINING_MARKS).
 _MARKS = re.escape(_DQUOTES + _SQUOTES)
-_LETTER = "A-Za-z֐-׿" + HEB_PRESENTATION + "0-9"
+_LETTER = "A-Za-z" + LATIN_ACCENTED + "֐-׿" + HEB_PRESENTATION + COMBINING_MARKS + "0-9"
 _WORD = r"[" + _LETTER + r"]+(?:[" + _MARKS + r"/][" + _LETTER + r"]+)*"
 # numbers first (greedy) so 3.14 isn't pre-empted by the bare-digit branch of _WORD.
 _TOKEN_RE = re.compile(_NUM + r"|" + _WORD + r"|[^\s]", re.UNICODE)

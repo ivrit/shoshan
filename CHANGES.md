@@ -58,6 +58,12 @@ All notable changes to `shoshan` are recorded here.
   Surface text you get back is unchanged: the fold applies to the query, and `tokens`
   still carries your own characters at your own offsets.
 
+- **A Latin word with a diacritic stays one token**, however it is spelled. `Piñeiro`
+  was split into `Pi` + `eiro` when the ñ was precomposed (U+00F1 is not in `A-Za-z`) and
+  into `Pin` + `eiro` when it was decomposed (n + a combining tilde) — so a foreign name
+  in Hebrew text lost its offsets and reached the model in pieces, and the two spellings
+  of the same name did not even break the same way.
+
 - **Failures are no longer silent.** A form that cannot be located in its sentence, or an
   explicit offset that does not land on it, now emits a `logging` warning on the `shoshan`
   logger. Both conditions previously passed unreported.

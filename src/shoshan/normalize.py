@@ -55,6 +55,21 @@ _QUOTE_MAP.update({ord(c): chr(0x27) for c in _SQUOTES})  # -> ASCII '
 # is the exact class of bug this range exists to prevent.
 HEB_PRESENTATION = "\uFB1D-\uFB28\uFB2A-\uFB4F"
 
+# Combining diacritical marks U+0300-U+036F. Hebrew niqqud needs no entry here — it sits
+# inside the main block U+0590-U+05FF that the letter classes already span — but Latin
+# diacritics do NOT, and mixed Hebrew/Latin text is ordinary. A tokenizer running on RAW
+# text meets them: NFD input spells "Piñeiro" as n + U+0303, and a letter class without
+# this range splits it into "Pin" and "eiro", losing the word and its offsets exactly the
+# way an unlisted presentation form did.
+COMBINING_MARKS = "\u0300-\u036F"
+
+# Latin letters carrying a diacritic, precomposed: Latin-1 Supplement (minus the two
+# MATHEMATICAL signs at U+00D7 and U+00F7) plus Latin Extended-A and -B. The counterpart
+# to COMBINING_MARKS: the SAME name is one codepoint here and two there depending on
+# whether the source was composed, and a class covering only A-Za-z splits it in the first
+# case and again in the second. Hebrew text quoting a foreign name is ordinary.
+LATIN_ACCENTED = "\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u024F"
+
 # Presentation forms that NFC does NOT touch, mapped to the ordinary characters they
 # stand for. NFC handles most of the block: U+FB2E is a canonical decomposition, so `nfc`
 # already turns it into alef + patah. But the width variants U+FB20-U+FB28, the plus sign
