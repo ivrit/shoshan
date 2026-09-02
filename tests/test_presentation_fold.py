@@ -65,9 +65,15 @@ def test_width_variant_becomes_its_plain_letter():
     assert normalize_text(WIDE_ALEF) == ALEF
 
 
-def test_normalized_text_never_contains_an_assigned_presentation_form():
-    """THE property. Between nfc and the fold the whole block is gone, so no downstream
-    consumer -- encoder, bank lookup, edit script -- can meet one."""
+def test_normalized_text_never_contains_a_foldable_presentation_form():
+    """THE property. Between nfc and the fold, every character of the block that Unicode
+    gives a decomposition is gone, so no downstream consumer -- encoder, bank lookup, edit
+    script -- can meet one.
+
+    Combining marks are skipped below, and exactly one thing hides in that skip: U+FB1E
+    (Judeo-Spanish varika) has an EMPTY decomposition, so no fold can be derived for it and
+    it survives normalization. That is correct, not a gap -- but it is why this test asserts
+    a slightly weaker property than "the block is gone"."""
     for cp in range(0xFB1D, 0xFB50):
         c = chr(cp)
         if unicodedata.name(c, None) is None or unicodedata.combining(c):

@@ -122,10 +122,17 @@ def fold_presentation_forms(s: str) -> str:
     they stand for: the width variants U+FB20-U+FB28 -> their plain letter, the ligature
     U+FB4F -> alef + lamed, U+FB29 -> ASCII "+".
 
-    NOT length-preserving (U+FB4F is one codepoint in, two out), and it is applied AFTER
-    ``nfc``, so between them no character of the U+FB1D-U+FB4F block survives into
-    normalized text. Scoped to that block on purpose — see ``_PRESENTATION_FOLD`` for why
-    this is not simply NFKC over the whole string."""
+    NOT length-preserving (U+FB4F is one codepoint in, two out), and applied AFTER ``nfc``,
+    so between them every character of the U+FB1D-U+FB4F block that Unicode gives a
+    decomposition is gone from normalized text.
+
+    One character has none: U+FB1E (HEBREW POINT JUDEO-SPANISH VARIKA) is a combining mark
+    with an empty decomposition, so neither NFC nor NFKC touches it and there is nothing to
+    fold it to. It survives, correctly. It is harmless where it matters -- DictaBERT's
+    tokenizer strips it as a combining mark, so the encoder never sees it -- but it does
+    reach a bank key, since ``strip_niqqud`` covers only U+0591-U+05C7.
+    Scoped to this block on purpose — see
+    ``_PRESENTATION_FOLD`` for why this is not simply NFKC over the whole string."""
     return str(s or "").translate(_PRESENTATION_FOLD)
 
 
