@@ -28,13 +28,47 @@ def lz():
 
 
 def test_annotate_passes_absolute_offsets(lz):
-    """Each item's `start` is the token's real offset, so text[start:] begins with it."""
+    """Each row's `start` indexes the string the CALLER passed in.
+
+    This assertion used to index `normalize_text(SENT)` instead, and so passed while
+    the documented contract was broken: annotate() was returning offsets into an
+    internal normalized copy the caller never sees. On NFC-clean input like SENT the
+    two strings are identical, which is exactly why the bug survived the test."""
     rows = lz.annotate(SENT)
-    from shoshan.normalize import normalize_text
-    norm = normalize_text(SENT)
     for r in rows:
         assert "start" in r, f"annotate() dropped the offset for {r['form']!r}"
-        assert norm[r["start"]:r["start"] + len(r["form"])] == r["form"]
+        assert SENT[r["start"]:r["start"] + len(r["form"])] == r["form"]
+
+
+# A presentation form makes normalize_text change the string's LENGTH, so an offset into
+# the normalized copy stops being an offset into the caller's string. Written as an escape
+# because a literal does not reliably survive editors and terminals — and if it arrives
+# decomposed the drift disappears and the test silently proves nothing.
+ALEF_PATAH = "\uFB2E"          # NFC decomposes this to U+05D0 + U+05B7: 1 char in, 2 out
+DRIFTING = ALEF_PATAH + " " + SENT
+
+
+def test_annotate_offsets_index_the_callers_string_under_nfc_drift(lz):
+    """THE D4 regression. Slicing the caller's own string with a returned offset must
+    yield the reported form, on input where normalization moves the offsets."""
+    from shoshan.normalize import normalize_text
+    assert len(normalize_text(DRIFTING)) != len(DRIFTING), "test data does not drift"
+    rows = lz.annotate(DRIFTING)
+    assert rows, "annotate returned nothing"
+    for r in rows:
+        got = DRIFTING[r["start"]:r["start"] + len(r["form"])]
+        assert got == r["form"], (
+            f"offset {r['start']} for {r['form']!r} sliced {got!r} out of the caller's string")
+
+
+def test_recurring_form_is_still_disambiguated_under_nfc_drift(lz):
+    """Pooling must stay correct when offsets have to be mapped, not just when they
+    happen to line up. Without the mapping every token falls back to find()."""
+    rows = [r for r in lz.annotate(DRIFTING) if r["form"] == "\u05e9\u05dd"]
+    assert len(rows) == 2, f"expected two \u05e9\u05dd tokens, got {len(rows)}"
+    first, second = rows
+    assert first["pos"] == "VERB", f"first \u05e9\u05dd (put) should be VERB, got {first['pos']}"
+    assert second["pos"] == "ADV", f"second \u05e9\u05dd (there) should be ADV, got {second['pos']}"
 
 
 def test_recurring_form_is_disambiguated(lz):

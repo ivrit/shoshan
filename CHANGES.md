@@ -1,0 +1,113 @@
+# Changes
+
+All notable changes to `shoshan` are recorded here.
+
+## 0.4.0 — 2026-09-02
+
+A minor version, not a patch: `annotate()`'s character offsets change value on input that
+is not already NFC-normalized. They were documented to index the string you passed in and
+did not; they now do. If you slice your own text with them, you were getting the wrong
+characters on such input and will now get the right ones — no code change needed, but the
+values differ. Everything else below is a fix with no contract change.
+
+### Fixed
+
+- **`annotate()` offsets now index the string you passed in.** They previously indexed an
+  internal normalized copy of the sentence that the caller never sees. Wherever
+  normalization changed the sentence's length, a caller slicing their own string with a
+  returned `start` got the wrong characters.
+
+  This is a **behaviour change for anyone using those offsets**: on affected input the
+  values differ from earlier releases. They are now what the docstring always promised —
+  `sentence[r["start"]:r["start"] + len(r["form"])] == r["form"]` holds for every row.
+
+  `lemmatize_text()` was never affected; it has always tokenized the original text.
+
+- **Span pooling no longer mis-reads a recurring word when normalization shifts offsets.**
+  An explicit `start` is computed on the raw sentence but was compared against the
+  normalized one, on the assumption that `normalize_text` preserved length. It does not:
+  the quote fold is 1 codepoint to 1, but the NFC pass in front of it changes length in
+  both directions. The offset then failed its validity check and pooling fell back to the
+  first occurrence of the form, so a word appearing twice in a sentence was read in the
+  wrong context. Offsets are now mapped into normalized coordinates before use.
+
+  This is most likely to have affected **text extracted from PDFs**, which commonly
+  contains Hebrew presentation forms (U+FB1D–U+FB4F) — a single codepoint for a letter
+  that already carries its point, which NFC decomposes into two. Text normalized to NFC
+  upstream was never affected.
+
+- **The tokenizer keeps acronyms written with curly quotes whole** (`צה”ל`), instead of
+  splitting them into three tokens. It previously relied on the caller having folded the
+  quotes first.
+
+- **Words written with Hebrew presentation forms are lemmatized correctly.** These are
+  single codepoints for a letter that already carries its point (U+FB2E), is a width
+  variant (U+FB21), or is a ligature (U+FB4F), and text extracted from PDFs is full of
+  them. Two things went wrong and both are fixed:
+
+  The tokenizer did not recognize them as letters, so it split the word around one and
+  then dropped the orphan as punctuation — `אנשים` ("people") with its alef written as
+  U+FB2E became `נשים` ("women") before the model saw anything.
+
+  Normalization only folded the forms NFC decomposes, which leaves the width variants and
+  the ligature untouched by definition. Those reached the encoder as codepoints its
+  tokenizer has never seen. Measured over 400 gold rows corrupted the way PDF extraction
+  corrupts Hebrew, lemma accuracy against the same rows uncorrupted (0.95):
+
+  | corruption | before | after |
+  |---|---|---|
+  | U+FB4F alef-lamed ligature | 0.0025 | 0.9475 |
+  | U+FB21 wide alef | 0.0050 | 0.9500 |
+  | U+FB2E alef with patah | 0.9400 | 0.9400 |
+
+  Predictions on corrupted text are now identical to predictions on the clean spelling.
+  Surface text you get back is unchanged: the fold applies to the query, and `tokens`
+  still carries your own characters at your own offsets.
+
+- **A Latin word with a diacritic stays one token**, however it is spelled. `Piñeiro`
+  was split into `Pi` + `eiro` when the ñ was precomposed (U+00F1 is not in `A-Za-z`) and
+  into `Pin` + `eiro` when it was decomposed (n + a combining tilde) — so a foreign name
+  in Hebrew text lost its offsets and reached the model in pieces, and the two spellings
+  of the same name did not even break the same way.
+
+- **Failures are no longer silent.** A form that cannot be located in its sentence, or an
+  explicit offset that does not land on it, now emits a `logging` warning on the `shoshan`
+  logger. Both conditions previously passed unreported.
+
+- **`lemma()` and the `--csv` CLI now collapse inclusive-writing gender-slash forms**, as
+  `annotate()` and `lemmatize_text()` always did. `lz.lemma("מנהל/ת", …)` returned
+  `'מנהל/ת'` — a slash inside a Hebrew lemma — where the other two returned `'מנהל'`. The
+  collapse moved onto the shared path, so all three entry points now agree, and the junk
+  no longer reaches the curation worklist as a false dictionary gap.
+
+- **A blanked stopword still consumes an `es_tokens` position.** With
+  `blank_function_words=True` the positions were renumbered densely, leaving no gap where
+  the stopword had been, so a `match_phrase` for two lemmas could match text with a word
+  between them and the positions did not line up with a parallel surface-indexed field.
+  Elasticsearch's own stop filter advances the position; now so does this.
+
+- **An out-of-range `start` says so**, instead of reporting itself as a normalization
+  problem and sending the reader after a Unicode bug that is not there.
+
+### Documentation
+
+- The `source` enumeration in the README was missing **`bypass`** and **`acronym`**, two
+  values the package has always emitted. `bypass` is close to half of all tokens on
+  ordinary text, so the omission touched most output a reader would ever inspect — the
+  doc-dict example in the README showed `'source': 'retrieved'` for a token that actually
+  returns `'bypass'`. Both are documented now, along with the consequence for curation:
+  `write_miss_log` only sees tokens the coverage gate actually judged.
+
+- The pronoun-lemma convention is stated as what it is — a look-up keyed on the surface
+  form **and the predicted POS** — rather than as an invariant over arbitrary text.
+
+- `write_miss_log`'s columns are documented as the eight it writes, not the six it used to.
+
+### Added
+
+- `shoshan.text.find_token_spans(sentence, token)` — every span where `token` occurs,
+  matched after normalization on both sides but returned as offsets into the **original**
+  sentence.
+- `shoshan.text.normalize_with_offset_map(s)` / `map_offset(s, start)` — carry an offset
+  computed on the original string forward into normalized coordinates. An offset with no
+  honest normalized counterpart is reported as unmappable rather than guessed at.
