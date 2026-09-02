@@ -74,6 +74,35 @@ values differ. Everything else below is a fix with no contract change.
   explicit offset that does not land on it, now emits a `logging` warning on the `shoshan`
   logger. Both conditions previously passed unreported.
 
+- **`lemma()` and the `--csv` CLI now collapse inclusive-writing gender-slash forms**, as
+  `annotate()` and `lemmatize_text()` always did. `lz.lemma("מנהל/ת", …)` returned
+  `'מנהל/ת'` — a slash inside a Hebrew lemma — where the other two returned `'מנהל'`. The
+  collapse moved onto the shared path, so all three entry points now agree, and the junk
+  no longer reaches the curation worklist as a false dictionary gap.
+
+- **A blanked stopword still consumes an `es_tokens` position.** With
+  `blank_function_words=True` the positions were renumbered densely, leaving no gap where
+  the stopword had been, so a `match_phrase` for two lemmas could match text with a word
+  between them and the positions did not line up with a parallel surface-indexed field.
+  Elasticsearch's own stop filter advances the position; now so does this.
+
+- **An out-of-range `start` says so**, instead of reporting itself as a normalization
+  problem and sending the reader after a Unicode bug that is not there.
+
+### Documentation
+
+- The `source` enumeration in the README was missing **`bypass`** and **`acronym`**, two
+  values the package has always emitted. `bypass` is close to half of all tokens on
+  ordinary text, so the omission touched most output a reader would ever inspect — the
+  doc-dict example in the README showed `'source': 'retrieved'` for a token that actually
+  returns `'bypass'`. Both are documented now, along with the consequence for curation:
+  `write_miss_log` only sees tokens the coverage gate actually judged.
+
+- The pronoun-lemma convention is stated as what it is — a look-up keyed on the surface
+  form **and the predicted POS** — rather than as an invariant over arbitrary text.
+
+- `write_miss_log`'s columns are documented as the eight it writes, not the six it used to.
+
 ### Added
 
 - `shoshan.text.find_token_spans(sentence, token)` — every span where `token` occurs,

@@ -78,7 +78,7 @@ doc = lz.lemmatize_text("הילדים שיחקו בגן. הם בנו ארמון 
 doc["analyzed_text"]   # the lemmas in order, as one string
 doc["tokens"][0]                          # one record per word (shape):
 # {'token': 'הילדים', 'start': 0, 'end': 6, 'lemma': 'ילד',
-#  'pos': 'NOUN', 'source': 'retrieved', 'score': ..., 'sent_id': 0}
+#  'pos': 'NOUN', 'source': 'bypass', 'score': ..., 'sent_id': 0}
 ```
 
 The doc dict has five keys:
@@ -106,15 +106,27 @@ index and search by lemma while highlighting the original surface text.
 
 - `retrieved` — pulled from the lemma bank,
 - `transduced` — produced by the edit-script fallback (out-of-vocabulary words),
+- `bypass` — retrieved from the bank with the coverage gate **skipped**, because the
+  form is a pronoun or one of a list of high-frequency closed-class words whose lemma
+  the gate reliably distrusts for the wrong reason. This is common: on ordinary text it
+  is close to half of all tokens,
+- `acronym` — a known Hebrew acronym, kept as its own lemma with the coverage gate
+  skipped (`צה"ל` → `צה"ל`),
 - `suppletive` — a curated look-up for irregular / closed-class forms whose
   lemma shares too few letters to retrieve (e.g. *היא* → *הוא*),
 
   > **Lemma convention for pronouns.** Following the MILA canonical-lemma
-  > convention, **every personal pronoun lemmatizes to הוא** — not only
-  > *היא*, *הם* and *הן*, but also *אני*, *אתה* and *אנחנו*. This is
-  > deliberate, not a bug: the pronoun paradigm is treated as one lexeme with
-  > הוא as its citation form. If you need person or number, read them from
-  > the surface form or from `pos`, not from the lemma.
+  > convention, **personal pronouns lemmatize to הוא** — not only *היא*, *הם*
+  > and *הן*, but also *אני*, *אתה* and *אנחנו*. This is deliberate, not a bug:
+  > the pronoun paradigm is treated as one lexeme with הוא as its citation
+  > form. If you need person or number, read them from the surface form or
+  > from `pos`, not from the lemma.
+  >
+  > The look-up is keyed on the surface form **and the predicted POS**, so it
+  > applies when the word is actually tagged as a pronoun. In a sentence where
+  > the POS head mis-tags one — ill-formed agreement, say — the form comes back
+  > unchanged instead. Do not rely on the mapping as an invariant over arbitrary
+  > text; check `pos` alongside it.
 - `function` — only with `blank_function_words=True`: closed-class stopwords
   come back with an empty lemma and are kept in `tokens` (for provenance) but
   dropped from `es_tokens` and `analyzed_text`.
@@ -146,6 +158,15 @@ Three things hang off that vector:
    probably wrong (an unknown word), so the router does not trust it.
 3. **An edit-script head** — a learned, rule-free transformation of the *word*
    into its lemma, used only when the gate distrusts retrieval.
+
+Two routes skip step 2 deliberately, and between them they cover a large share of
+ordinary text: a curated suppletive look-up and a known-acronym look-up answer directly
+(`source` `suppletive` / `acronym`), and a list of pronouns and high-frequency
+closed-class forms accepts retrieval without the coverage check (`source` `bypass`).
+Those forms are exactly the ones whose lemma shares too few letters with the surface for
+the gate to judge fairly. One consequence is worth knowing if you curate: `write_miss_log`
+only ever sees tokens the gate actually judged, so a bypassed or suppletive token can
+never appear in the worklist.
 
 Because step 3 can only delete from or affix to the input word, the system has a
 bounded output: it never produces an unrelated string. Adding vocabulary is just
