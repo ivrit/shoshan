@@ -93,8 +93,17 @@ def _resolve_span(form: str, raw_sentence: str, start, cache: Dict[str, tuple]):
         return sentence, Lemmatizer._span(form, sentence)
     mapped = offsets.get(raw_start)
     if mapped is None:
-        _LOG.warning("start=%r is not a character boundary of the sentence (normalization "
-                     "moved it); falling back to find() for form %r", start, form)
+        # Both conditions are a dict miss, but they send a reader to different places:
+        # one is a caller bug, the other is the Unicode cluster boundary this map exists
+        # for. Saying "normalization moved it" about an offset that is simply past the
+        # end starts a hunt for a problem that is not there.
+        if not 0 <= raw_start <= len(raw_sentence):
+            _LOG.warning("start=%r is outside the sentence (length %d); falling back to "
+                         "find() for form %r", start, len(raw_sentence), form)
+        else:
+            _LOG.warning("start=%r is not a character boundary of the sentence (it lands "
+                         "inside a character sequence normalization rewrote); falling back "
+                         "to find() for form %r", start, form)
         return sentence, Lemmatizer._span(form, sentence)
     return sentence, Lemmatizer._span(form, sentence, mapped)
 
@@ -262,7 +271,7 @@ class Lemmatizer:
         or "function" (a closed-class word blanked because ``blank_function_words``
         is on).
         """
-        from .text import normalize_text
+        from .text import collapse_gender_slash, normalize_text
         if not items:
             return []
         # Normalize forms + sentences the same way training forms are (quote/prime
@@ -271,7 +280,13 @@ class Lemmatizer:
         # quote fold is 1:1), so each item's `start` — computed by its caller on the RAW
         # sentence — is mapped into normalized coordinates by _resolve_span rather than
         # used as-is. `norm_cache` keeps that to one walk per DISTINCT sentence.
-        forms = [normalize_text(str(it["form"])) for it in items]
+        # The gender-slash collapse belongs HERE, on the shared path, not only in the two
+        # tokenizing entry points. `lemma()` and the --csv CLI hand their form straight to
+        # this method, and without the collapse they returned the slash in the lemma
+        # ("מנהל/ת" instead of "מנהל") -- not a Hebrew lemma at all, and it reached the
+        # curation worklist as a dictionary gap. It is idempotent, so the forms `annotate`
+        # and the document path already collapsed pass through unchanged.
+        forms = [normalize_text(collapse_gender_slash(str(it["form"]))) for it in items]
         norm_cache: Dict[str, tuple] = {}
         sents, spans = [], []
         for f, it in zip(forms, items):
@@ -475,7 +490,11 @@ class Lemmatizer:
             if lemma:
                 es_tokens.append({"token": lemma, "start_offset": t.start,
                                   "end_offset": t.end, "position": pos_i, "type": "lemma"})
-                pos_i += 1
+            # The position advances for EVERY token, blanked ones included. Elasticsearch's
+            # own stop filter does this: leaving no gap where a stopword was would let a
+            # match_phrase for "A B" hit text that reads "A <stopword> B", and would put
+            # these positions out of step with any parallel surface-indexed field.
+            pos_i += 1
             # `unknown` = real, novel dictionary gaps: the transduced fallback fired and the
             # predicted lemma is a genuine open-class gap.
             if p["source"] == "transduced" and self._worth_annotating(lemma, p["pos"]):
