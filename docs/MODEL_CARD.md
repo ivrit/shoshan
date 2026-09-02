@@ -39,7 +39,7 @@ scales with the number of sentences, not tokens.
 ## Usage
 
 ```bash
-pip install git+https://github.com/ivrit/shoshan.git
+pip install shoshan
 ```
 
 ```python
@@ -48,6 +48,28 @@ from shoshan import Lemmatizer
 lz = Lemmatizer.from_pretrained()        # pulls these weights, then caches
 lz.lemma("המחברות", "המורה חילקה את המחברות לתלמידים בכיתה.")   # -> מחברת
 ```
+
+## `shoshan` 0.4.0 — update the software, not the weights
+
+**These weights are unchanged**; nothing here needs re-downloading. 0.4.0 fixes the text
+handling *around* the model, so the same weights now see your text as you wrote it.
+
+It matters most for **text extracted from PDFs**, which commonly spells Hebrew with
+presentation forms (U+FB1D-U+FB4F). Such a word used to be split apart before the model
+saw it — `אנשים` ("people") written with U+FB2E became `נשים` ("women") — and, for the
+width variants and the alef-lamed ligature, it also reached the encoder as a codepoint
+DictaBERT has never seen. Both are fixed. `annotate()`'s character offsets now index the
+string you passed in; their value changes on any input that normalization rewrites — text
+that is not NFC, and text containing presentation forms.
+
+```bash
+pip install -U shoshan
+```
+
+If you have run this model over PDF-extracted Hebrew, the affected words were lemmatized
+wrong rather than approximately — re-run rather than spot-check.
+Measured effect and the full changelog:
+<https://github.com/ivrit/shoshan/releases/tag/v0.4.0>
 
 ## Results (out-of-domain, held-out registers)
 

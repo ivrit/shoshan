@@ -16,7 +16,7 @@ It cannot return a string that came from nowhere.
 ## Install
 
 ```bash
-pip install git+https://github.com/ivrit/shoshan.git
+pip install shoshan
 ```
 
 The weights (about 1 GB) download from the Hugging Face Hub the first time you

@@ -4,11 +4,13 @@ All notable changes to `shoshan` are recorded here.
 
 ## 0.4.0 — 2026-09-02
 
-A minor version, not a patch: `annotate()`'s character offsets change value on input that
-is not already NFC-normalized. They were documented to index the string you passed in and
-did not; they now do. If you slice your own text with them, you were getting the wrong
-characters on such input and will now get the right ones — no code change needed, but the
-values differ. Everything else below is a fix with no contract change.
+A minor version, not a patch: `annotate()`'s character offsets change value on any input
+that normalization rewrites — text that is not NFC, **and** text containing Hebrew
+presentation forms, which are NFC-stable and so are not covered by "not NFC". They were
+documented to index the string you passed in and did not; they now do. If you slice your
+own text with them, you were getting the wrong characters on such input and will now get
+the right ones — no code change needed, but the values differ. Everything else below is a
+fix with no contract change.
 
 ### Fixed
 
@@ -59,6 +61,11 @@ values differ. Everything else below is a fix with no contract change.
   | U+FB4F alef-lamed ligature | 0.0025 | 0.9475 |
   | U+FB21 wide alef | 0.0050 | 0.9500 |
   | U+FB2E alef with patah | 0.9400 | 0.9400 |
+
+  U+FB2E is unchanged in this table because NFC already folded it, so the encoder query
+  was always correct for it. That row says nothing about the *tokenizer* defect above,
+  which did affect U+FB2E — that is how `אנשים` became `נשים`, and the word never reached
+  the encoder at all.
 
   Predictions on corrupted text are now identical to predictions on the clean spelling.
   Surface text you get back is unchanged: the fold applies to the query, and `tokens`
