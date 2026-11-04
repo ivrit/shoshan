@@ -49,6 +49,10 @@ lz = Lemmatizer.from_pretrained()        # pulls these weights, then caches
 lz.lemma("המחברות", "המורה חילקה את המחברות לתלמידים בכיתה.")   # -> מחברת
 ```
 
+The input unit is one sentence of up to 512 subword tokens, about 370 Hebrew words. A word
+past that point cannot be lemmatized and is returned with `source="truncated"`; split longer
+text into sentences first (`lemmatize_text` does this on sentence punctuation).
+
 ## `shoshan` 0.4.1 — long sentences
 
 Weights unchanged. The software read at most 160 subword tokens of a sentence and, for any
