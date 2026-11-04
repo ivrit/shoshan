@@ -49,6 +49,14 @@ lz = Lemmatizer.from_pretrained()        # pulls these weights, then caches
 lz.lemma("המחברות", "המורה חילקה את המחברות לתלמידים בכיתה.")   # -> מחברת
 ```
 
+## `shoshan` 0.4.1 — long sentences
+
+Weights unchanged. The software read at most 160 subword tokens of a sentence and, for any
+word past that point, ran the heads on the sentence-start vector, which reads as PART; with
+`blank_function_words=True` those words were dropped. The window is now the encoder's limit
+of 512 tokens, and a word past it is reported as `source="truncated"` with its surface form
+as the lemma. Changelog: <https://github.com/ivrit/shoshan/releases/tag/v0.4.1>
+
 ## `shoshan` 0.4.0 — update the software, not the weights
 
 **These weights are unchanged**; nothing here needs re-downloading. 0.4.0 fixes the text

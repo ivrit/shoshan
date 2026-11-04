@@ -2,6 +2,37 @@
 
 All notable changes to `shoshan` are recorded here.
 
+## 0.4.1 — 2026-11-04
+
+A patch release. Same weights, same lemma bank; nothing to re-download.
+
+### Fixed
+
+- **Long sentences were silently cut at 160 subword tokens, and the words past the cut were
+  mis-tagged or dropped.** The encoder read at most 160 subword tokens of a sentence (about
+  110 Hebrew words), a cap chosen as headroom over the training data (longest sentence: 127
+  subwords) and never revisited. A word past the cut has no hidden states, so the code pooled
+  the sentence-start vector in its place and ran the heads on it. The POS head reads that
+  vector as PART, a closed-class tag, so with `blank_function_words=True` every such word was
+  blanked as a stopword; without it, the word got a lemma retrieved for a vector that did not
+  describe it. Reproduced: in a 212-subword sentence, the last 15 words all came back as PART
+  with an empty lemma.
+
+  The window is now the encoder's own limit, 512 subword tokens (`JointEncoder.max_len`),
+  about 370 Hebrew words. Short sentences cost the same as before; only a batch containing a
+  long sentence is padded further.
+
+- **A word past even that window is reported, not guessed.** It comes back with
+  `source="truncated"`, the surface form as its lemma, `pos="X"` and score 0.0. It is never
+  blanked as a function word, and in `lemmatize_text` it stays in `tokens` and in
+  `es_tokens`, indexed by its surface form. One warning per call names how many tokens were
+  affected. The sentence splitter breaks on sentence punctuation, so this happens only on long
+  runs with no punctuation; split those yourself before lemmatizing.
+
+- `JointEncoder.pool_spans(..., return_truncated=True)` returns the per-span flags for callers
+  that drive the encoder directly. `encode_sentences` and `encode_query` now default
+  `max_len` to `None`, meaning the encoder limit.
+
 ## 0.4.0 — 2026-09-02
 
 A minor version, not a patch: `annotate()`'s character offsets change value on any input
