@@ -268,8 +268,11 @@ class Lemmatizer:
         "acronym" (a known Hebrew acronym, retrieval accepted without the coverage
         check), "bypass" (retrieval accepted without the coverage check for PRON or
         high-frequency closed-class forms), "transduced" (the edit-script fallback),
-        or "function" (a closed-class word blanked because ``blank_function_words``
-        is on).
+        "function" (a closed-class word blanked because ``blank_function_words``
+        is on), or "truncated": the form lies past the encoder's input window
+        (``JointEncoder.max_len``, 512 subword tokens) and cannot be lemmatized, so
+        the surface form is returned as the lemma with ``pos`` "X" and score 0.0; it
+        is never blanked as a function word. Split such text into sentences first.
         """
         from .text import collapse_gender_slash, normalize_text
         if not items:
@@ -312,6 +315,7 @@ class Lemmatizer:
             items_of[u].append(idx)
         dim = self.enc.enc.config.hidden_size
         qt = torch.zeros((len(items), dim), device=self.device)   # per-item span vector, item order
+        truncated = [False] * len(items)    # item lies past the encoder window (no hidden states)
         with torch.no_grad():
             for b0 in range(0, len(unique_sents), batch):
                 sub = unique_sents[b0:b0 + batch]
@@ -320,7 +324,16 @@ class Lemmatizer:
                 for local_u in range(len(sub)):
                     for idx in items_of[b0 + local_u]:
                         rows.append(local_u); sp.append(spans[idx]); dst.append(idx)
-                qt[dst] = self.enc.pool_spans(hidden, offsets, rows, sp)
+                qt[dst], tr = self.enc.pool_spans(hidden, offsets, rows, sp, return_truncated=True)
+                for idx, t in zip(dst, tr):
+                    if t:
+                        truncated[idx] = True
+        n_trunc = sum(truncated)
+        if n_trunc:
+            _LOG.warning("%d token(s) lie past the encoder's input window of %d positions and "
+                         "were not lemmatized (source='truncated', lemma = surface form). "
+                         "Split the text into sentences before lemmatizing.",
+                         n_trunc, self.enc.max_len)
 
         # --- route each token (chunked so the heads + sims matmul stay memory-bounded) ---
         # The per-item routing logic is unchanged from the per-token-encode version; only
@@ -340,6 +353,16 @@ class Lemmatizer:
             for k in range(hi - lo):
                 it = items[lo + k]
                 form = forms[lo + k]
+                # --- past the encoder window: no prediction exists for this token ---
+                # Its q is the sentence-start vector (pool_spans' fallback), and whatever
+                # the heads read off that vector is noise: the POS head lands on PART, and
+                # with blank_function_words the word was then silently dropped as a
+                # stopword. Report the truth instead: surface form copied as the lemma (so
+                # the token still indexes), POS "X", score 0, and no miss-log entry.
+                if truncated[lo + k]:
+                    out.append({**it, "form": form, "lemma": form, "pos": "X",
+                                "score": 0.0, "source": "truncated"})
+                    continue
                 ret_lemma, ret_sim = self.bank.lemmas[js[k]], ret_sims[k]
                 pos = UPOS[pos_pred[k]]
                 # curated suppletive lookup (surface+POS -> lemma), keyed on predicted POS

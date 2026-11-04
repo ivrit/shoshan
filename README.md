@@ -66,6 +66,12 @@ back with an empty lemma and `source="function"`, so you can skip them:
 lz = Lemmatizer.from_pretrained(blank_function_words=True)
 ```
 
+One more `source` value you may meet: `"truncated"`. The encoder reads at most 512
+subword tokens of a sentence (about 370 Hebrew words); a word past that point cannot be
+lemmatized and comes back with its surface form as the lemma, `pos="X"`, score 0, and a
+warning. It is never blanked as a function word. This only happens on long runs of text
+with no sentence punctuation; split those before lemmatizing.
+
 ### Whole documents and search indexing
 
 `lemmatize_text(source)` is the call for **complete texts**. Give it a raw

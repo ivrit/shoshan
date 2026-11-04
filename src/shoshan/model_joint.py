@@ -49,20 +49,38 @@ class JointEncoder(nn.Module):
     def device(self) -> torch.device:
         return next(self.parameters()).device
 
+    @property
+    def max_len(self) -> int:
+        """Default input window of `encode_sentences`, in subword tokens.
+
+        This is the encoder's own position limit (512 for the BERT backbone), not a smaller
+        cap. Anything past the window is cut off, and a token that was cut off has no
+        hidden states at all: `pool_spans` can only hand back the sentence-start vector for
+        it, which none of the heads were trained to read (the POS head tends to call it
+        PART, and `blank_function_words` would then drop the word as a stopword). An earlier
+        default of 160 kept batches cheap and covered every training sentence (the longest
+        was 127 subwords), but silently truncated longer real-world sentences. Tokens that
+        fall past even this window are flagged by `pool_spans(return_truncated=True)` and
+        reported by `Lemmatizer.lemmatize` as source="truncated"."""
+        return int(getattr(self.enc.config, "max_position_embeddings", 512))
+
     def encode_lemma(self, lemmas: List[str], max_len: int = 32) -> torch.Tensor:
         b = self.tok(lemmas, padding=True, truncation=True, max_length=max_len,
                      return_tensors="pt").to(self.device)
         out = self.enc(**b).last_hidden_state
         return F.normalize(masked_mean(out, b["attention_mask"]), dim=-1)
 
-    def encode_sentences(self, sentences: List[str], max_len: int = 160):
+    def encode_sentences(self, sentences: List[str], max_len: Optional[int] = None):
         """Run the encoder ONCE over each sentence (the expensive forward pass).
 
         Returns (hidden, offsets): `hidden` is last_hidden_state [B, T, D]; `offsets`
         is the list of B per-token (char_start, char_end) rows. Pooling is factored out
         into `pool_spans`, so a sentence encoded once here can serve many token spans —
         the encode-once path (`Lemmatizer.lemmatize`) encodes each DISTINCT sentence once
-        and pools every token's span from the shared hidden state."""
+        and pools every token's span from the shared hidden state. `max_len` defaults to
+        the encoder's position limit (see `max_len`)."""
+        if max_len is None:
+            max_len = self.max_len
         b = self.tok(sentences, padding=True, truncation=True, max_length=max_len,
                      return_offsets_mapping=True, return_tensors="pt")
         offsets = b.pop("offset_mapping").tolist()
@@ -70,17 +88,21 @@ class JointEncoder(nn.Module):
         return self.enc(**b).last_hidden_state, offsets
 
     def pool_spans(self, hidden: torch.Tensor, offsets, rows: List[int],
-                   spans: List[Tuple[int, int]]) -> torch.Tensor:
+                   spans: List[Tuple[int, int]], return_truncated: bool = False):
         """Mean-pool each (row, span) from a shared encode → q [len(spans), D], L2-norm.
 
         `rows[k]` selects the sentence row in `hidden` for span `spans[k]=(s,e)`; many
         spans may share one row (encode-once). Reproduces `encode_query`'s span mask
         exactly: a subword token is included when its char span overlaps [s, e)
-        (`cs < e and ce > s`), with a position-0 fallback when the form was truncated out
-        of the window. Spans that share a hidden row are pooled with a single
+        (`cs < e and ce > s`). When the form was truncated out of the window (mask empty),
+        position 0 ([CLS]) is pooled instead and the span is flagged: with
+        `return_truncated=True` the result is `(q, truncated)`, `truncated[k]` True for
+        exactly those spans. Callers must not read the heads on a flagged row as a
+        prediction (see `max_len`). Spans that share a hidden row are pooled with a single
         [K, T]·[T, D] matmul (the shared row is never duplicated across spans)."""
         T, D = hidden.shape[1], hidden.shape[2]
         q = hidden.new_zeros(len(spans), D)
+        truncated = [False] * len(spans)
         groups: Dict[int, List[int]] = {}
         for k, r in enumerate(rows):
             groups.setdefault(r, []).append(k)
@@ -97,12 +119,13 @@ class JointEncoder(nn.Module):
                         m[j, t] = 1.0
                 if m[j].sum() == 0:
                     m[j, 0] = 1.0
+                    truncated[k] = True
             pooled = (m @ hidden[r]) / m.sum(1, keepdim=True).clamp(min=1e-9)
             q[ks] = F.normalize(pooled, dim=-1)
-        return q
+        return (q, truncated) if return_truncated else q
 
     def encode_query(self, sentences: List[str], spans: List[Tuple[int, int]],
-                     max_len: int = 160):
+                     max_len: Optional[int] = None):
         """Returns (q, pos_logits, edit_logits). edit_logits is None if no edit head.
 
         1:1 sentences↔spans (one span per sentence). The runtime document path dedups
